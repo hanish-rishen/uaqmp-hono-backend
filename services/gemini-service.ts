@@ -50,33 +50,55 @@ export const geminiService = {
           "No OpenWeather data available in global var. Getting current data."
         );
         try {
-          // Get the actual current air quality data from the frontend
-          // This is just a fallback to match the frontend value
-          const actualAQI = 112; // Match the value shown in frontend
-          const actualLevel = "Unhealthy for Sensitive Groups";
+          // Get the current air quality data directly from OpenWeather API
+          // Instead of using hardcoded values
+          const lat = "13.039835226912825"; // Default coords for Ambattur
+          const lon = "80.17812278961485";
 
-          // Create default air quality data that matches the frontend
+          // Use the existing airQualityService to get real-time data
+          const currentData = await airQualityService.getCurrentAirQuality(
+            lat,
+            lon
+          );
+
           airQualityData = {
-            aqi: actualAQI,
-            level: actualLevel,
+            aqi: currentData.aqi,
+            level: currentData.level,
+            components: currentData.components,
+            location: currentData.location,
+            timestamp: currentData.timestamp,
+          };
+
+          console.log(
+            "Retrieved real-time air quality data with AQI:",
+            airQualityData.aqi
+          );
+          console.log("Real-time pollutant levels:", {
+            "PM2.5": airQualityData.components.pm2_5,
+            PM10: airQualityData.components.pm10,
+            CO: airQualityData.components.co,
+            O3: airQualityData.components.o3,
+          });
+        } catch (fetchError) {
+          console.error("Error fetching current air quality:", fetchError);
+          // Fall back to default data only if API call fails
+          airQualityData = {
+            aqi: 50,
+            level: "Moderate",
             components: {
-              co: 300.5,
-              no: 0.6,
-              no2: 10.2,
-              o3: 55.8,
-              so2: 7.9,
-              pm2_5: 65.1, // Higher to match the higher AQI
-              pm10: 78.2, // Higher to match the higher AQI
-              nh3: 1.2,
+              co: 200,
+              no: 0.5,
+              no2: 10,
+              o3: 50,
+              so2: 5,
+              pm2_5: 25,
+              pm10: 30,
+              nh3: 1.0,
             },
             location: { lat: "0", lon: "0" },
             timestamp: Date.now(),
           };
-
-          console.log("Created fallback air quality data with AQI:", actualAQI);
-        } catch (fetchError) {
-          console.error("Error fetching current air quality:", fetchError);
-          // Keep using default data in case of error
+          console.log("Using fallback data due to API error");
         }
       }
 
