@@ -6,6 +6,25 @@ import { newsRoutes } from "./routes/news-routes";
 import { createServer } from "node:http";
 import * as dotenv from "dotenv";
 import { resolve } from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { osmRoutes } from "./routes/osm-routes"; // Import new OSM routes
+import { predictionRoutes } from "./routes/prediction-routes"; // Import prediction routes
+import { urbanPlanningRoutes } from "./routes/urban-planning-routes"; // Import urban planning routes
+
+// --- START: Load GeoJSON Data ---
+// REMOVE or comment out the GeoJSON loading logic as it's no longer needed
+/*
+let countriesGeoJson: any = null;
+const geojsonFilePath = path.resolve(__dirname, "data", "countries.geojson");
+try {
+  // ... existing loading logic ...
+} catch (err) {
+  // ... existing error handling ...
+}
+*/
+console.log("GeoJSON country loading skipped as it's no longer used.");
+// --- END: Load GeoJSON Data ---
 
 // Initialize global variable for storing last air quality data
 declare global {
@@ -69,6 +88,10 @@ app.use(
 // Routes
 app.route("/api", airQualityRoutes);
 app.route("/api/news", newsRoutes);
+// app.route("/api/topology", topologyRoutes); // Remove this line
+app.route("/api/osm", osmRoutes); // Add the OSM routes under /api/osm
+app.route("/api/predict", predictionRoutes); // Add the prediction routes under /api/predict
+app.route("/api/urban-planning", urbanPlanningRoutes); // Add urban planning routes
 
 // Default route
 app.get("/", (c) => {
@@ -85,7 +108,8 @@ if (require.main === module) {
   console.log(`Or with: npx tsx alt-index.ts`);
 
   // Use a simple HTTP server
-  const server = createServer((req, res) => {
+  const server = createServer(async (req, res) => {
+    // Make the callback async
     // Add CORS headers to every response
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -115,146 +139,64 @@ if (require.main === module) {
         }`
       );
 
-      // Handle API endpoints directly
-      if (url.pathname.startsWith("/api/current")) {
-        const lat = url.searchParams.get("lat") || "37.7749";
-        const lon = url.searchParams.get("lon") || "-122.4194";
+      // --- START: Simplify Route Handling ---
+      // Remove specific handlers for routes managed by Hono's app.route
 
-        // Import airQualityService directly - works around the dynamic import issues
-        const airQualityService =
-          require("./services/air-quality-service").airQualityService;
+      // Example: Keep handlers for things NOT managed by Hono's app.route if any exist
+      // if (url.pathname.startsWith("/some/other/path")) { ... return; }
 
-        airQualityService
-          .getCurrentAirQuality(lat, lon)
-          .then((data) => {
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify(data));
-          })
-          .catch((error) => {
-            console.error("Error fetching air quality:", error);
-            res.writeHead(500);
-            res.end(
-              JSON.stringify({
-                error: "Internal Server Error",
-                message: error instanceof Error ? error.message : String(error),
-              })
-            );
-          });
-        return;
+      // --- END: Simplify Route Handling ---
+
+      // --- Let Hono handle the request ---
+      // Convert Node req/res to Fetch API Request
+      const method = req.method || "GET";
+      const headers = new Headers();
+      Object.entries(req.headers).forEach(([key, value]) => {
+        if (value)
+          headers.set(key, Array.isArray(value) ? value.join(", ") : value);
+      });
+
+      const requestInit: RequestInit = { method, headers };
+      if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+        requestInit.body = req as any; // Cast req to any to satisfy TypeScript
+        (requestInit as any).duplex = "half"; // Required for Node.js v18+ streams
       }
 
-      if (url.pathname.startsWith("/api/components")) {
-        const lat = url.searchParams.get("lat") || "37.7749";
-        const lon = url.searchParams.get("lon") || "-122.4194";
+      const request = new Request(url.toString(), requestInit);
 
-        // Import airQualityService directly
-        const airQualityService =
-          require("./services/air-quality-service").airQualityService;
+      // Fetch response from Hono app
+      const response = await app.fetch(request);
 
-        airQualityService
-          .getAirQualityComponents(lat, lon)
-          .then((data) => {
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify(data));
-          })
-          .catch((error) => {
-            console.error("Error fetching components:", error);
-            res.writeHead(500);
-            res.end(
-              JSON.stringify({
-                error: "Internal Server Error",
-                message: error instanceof Error ? error.message : String(error),
-              })
-            );
-          });
-        return;
+      // Convert Hono/Fetch Response back to Node res
+      res.statusCode = response.status;
+      response.headers.forEach((value, key) => {
+        // Avoid setting 'transfer-encoding' if it's chunked, Node handles it.
+        if (key.toLowerCase() !== "transfer-encoding") {
+          res.setHeader(key, value);
+        }
+      });
+
+      // Stream the body
+      if (response.body) {
+        for await (const chunk of response.body) {
+          res.write(chunk);
+        }
       }
-
-      if (url.pathname.startsWith("/api/forecast")) {
-        const lat = url.searchParams.get("lat") || "37.7749";
-        const lon = url.searchParams.get("lon") || "-122.4194";
-
-        // Import airQualityService directly
-        const airQualityService =
-          require("./services/air-quality-service").airQualityService;
-
-        airQualityService
-          .getAirQualityForecast(lat, lon)
-          .then((data) => {
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify(data));
-          })
-          .catch((error) => {
-            console.error("Error fetching forecast:", error);
-            res.writeHead(500);
-            res.end(
-              JSON.stringify({
-                error: "Internal Server Error",
-                message: error instanceof Error ? error.message : String(error),
-              })
-            );
-          });
-        return;
-      }
-
-      // Add handler for news endpoints
-      else if (url.pathname.startsWith("/api/news/air-quality")) {
-        const location = url.searchParams.get("location") || "global";
-
-        // Import geminiService directly
-        const { geminiService } = require("./services/gemini-service");
-
-        geminiService
-          .getAirQualityNews(location)
-          .then((data) => {
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify(data));
-          })
-          .catch((error) => {
-            console.error("Error fetching air quality news:", error);
-            res.writeHead(500);
-            res.end(
-              JSON.stringify({
-                error: "Internal Server Error",
-                message: error instanceof Error ? error.message : String(error),
-              })
-            );
-          });
-        return;
-      }
-
-      // Default route
-      if (url.pathname === "/") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify({ message: "Welcome to UAQMP API" }));
-        return;
-      }
-
-      // Test route to check CORS
-      if (url.pathname === "/test-cors") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify({ message: "CORS is working!" }));
-        return;
-      }
-
-      // 404 for everything else
-      res.writeHead(404);
-      res.end(JSON.stringify({ error: "Not Found" }));
+      res.end();
+      // --- End Hono Handling ---
     } catch (error) {
       console.error("Server error:", error);
-      res.writeHead(500);
-      res.end(
-        JSON.stringify({
-          error: "Internal Server Error",
-          message: error instanceof Error ? error.message : String(error),
-        })
-      );
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+      }
+      if (!res.writableEnded) {
+        res.end(
+          JSON.stringify({
+            error: "Internal Server Error",
+            message: error instanceof Error ? error.message : String(error),
+          })
+        );
+      }
     }
   });
 
@@ -266,4 +208,4 @@ if (require.main === module) {
   });
 }
 
-export default app;
+export default app; // Export Hono app if needed elsewhere
