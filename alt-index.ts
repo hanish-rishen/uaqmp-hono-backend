@@ -5,12 +5,12 @@ import { airQualityRoutes } from "./routes/air-quality";
 import { newsRoutes } from "./routes/news-routes";
 import { createServer } from "node:http";
 import * as dotenv from "dotenv";
-import { resolve } from "path";
+import { resolve } from "node:path";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { osmRoutes } from "./routes/osm-routes"; // Import new OSM routes
-import { predictionRoutes } from "./routes/prediction-routes"; // Import prediction routes
-import { urbanPlanningRoutes } from "./routes/urban-planning-routes"; // Import urban planning routes
+import { osmRoutes } from "./routes/osm-routes";
+import { predictionRoutes } from "./routes/prediction-routes";
+import { urbanPlanningRoutes } from "./routes/urban-planning-routes";
 
 // --- START: Load GeoJSON Data ---
 // REMOVE or comment out the GeoJSON loading logic as it's no longer needed

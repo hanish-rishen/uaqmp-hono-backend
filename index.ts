@@ -5,7 +5,7 @@ import { airQualityRoutes } from "./routes/air-quality";
 import { newsRoutes } from "./routes/news-routes";
 import { predictionRoutes } from "./routes/prediction-routes";
 import { urbanPlanningRoutes } from "./routes/urban-planning-routes";
-import { createServer } from "http";
+import { createServer } from "node:http";
 
 // Instead of loading dotenv, use Workers environment variables
 
