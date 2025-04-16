@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { airQualityRoutes } from "./routes/air-quality";
 import { newsRoutes } from "./routes/news-routes";
@@ -11,6 +10,7 @@ import * as path from "node:path";
 import { osmRoutes } from "./routes/osm-routes";
 import { predictionRoutes } from "./routes/prediction-routes";
 import { urbanPlanningRoutes } from "./routes/urban-planning-routes";
+import { corsMiddleware } from "./middleware/cors-middleware";
 
 // --- START: Load GeoJSON Data ---
 // REMOVE or comment out the GeoJSON loading logic as it's no longer needed
@@ -73,17 +73,11 @@ console.log("Environment loaded:", {
 
 const app = new Hono();
 
+// Use our custom CORS middleware instead of the Hono cors middleware
+app.use("*", corsMiddleware);
+
 // Middleware
 app.use(logger());
-app.use(
-  cors({
-    origin: "*",
-    allowMethods: ["GET", "POST"],
-    allowHeaders: ["Content-Type", "Authorization"],
-    exposeHeaders: ["Content-Length"],
-    maxAge: 86400,
-  })
-);
 
 // Routes
 app.route("/api", airQualityRoutes);
@@ -110,17 +104,19 @@ if (require.main === module) {
   // Use a simple HTTP server
   const server = createServer(async (req, res) => {
     // Make the callback async
-    // Add CORS headers to every response
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization"
-    );
+    // Since we're now using corsMiddleware in our app, we can simplify this
 
-    // Handle preflight OPTIONS requests
+    // Handle preflight OPTIONS requests at the HTTP server level too as backup
     if (req.method === "OPTIONS") {
-      res.writeHead(204);
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods":
+          "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, Accept, X-Requested-With",
+        "Access-Control-Max-Age": "86400",
+        "Access-Control-Allow-Credentials": "true",
+      });
       res.end();
       return;
     }

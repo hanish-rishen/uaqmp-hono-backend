@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { airQualityRoutes } from "./routes/air-quality";
 import { newsRoutes } from "./routes/news-routes";
 import { predictionRoutes } from "./routes/prediction-routes";
 import { urbanPlanningRoutes } from "./routes/urban-planning-routes";
+import { corsMiddleware } from "./middleware/cors-middleware";
 
 // Initialize global variable for AQ data
 declare global {
@@ -24,29 +24,10 @@ if (typeof global.lastAirQualityData === "undefined") {
 
 const app = new Hono();
 
-// Apply CORS middleware with more permissive configuration
-app.use("*", async (c, next) => {
-  // Add CORS headers to all responses
-  c.header("Access-Control-Allow-Origin", "*"); // Allow any origin for now to troubleshoot
-  c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  c.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Accept, X-Requested-With"
-  );
-  c.header("Access-Control-Max-Age", "86400");
-  c.header("Access-Control-Allow-Credentials", "true");
+// Apply our custom CORS middleware to all routes
+app.use("*", corsMiddleware);
 
-  // Handle preflight OPTIONS requests
-  if (c.req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: c.res.headers,
-    });
-  }
-
-  await next();
-});
-
+// Apply logger middleware
 app.use(logger());
 
 // Routes
@@ -73,10 +54,9 @@ app.get("/", (c) => {
   });
 });
 
-// Add a catch-all OPTIONS route to handle preflight requests properly
+// Add a global catch-all OPTIONS route as a fallback
 app.options("*", (c) => {
-  c.status(204);
-  return c.body(null);
+  return c.body(null, 204);
 });
 
 // For Cloudflare Workers, we need to export the app directly
