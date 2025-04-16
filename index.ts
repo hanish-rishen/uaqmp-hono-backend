@@ -24,14 +24,15 @@ if (typeof global.lastAirQualityData === "undefined") {
 
 const app = new Hono();
 
-// Apply CORS middleware globally to all routes
+// Apply CORS middleware globally to all routes with more permissive settings
 app.use(
   "*",
   cors({
-    origin: ["https://uaqmp.vercel.app", "http://localhost:3000"],
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
-    exposeHeaders: ["Content-Length"],
+    origin: ["*"], // Allow all origins for now to debug
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization", "Accept"],
+    exposeHeaders: ["Content-Length", "Content-Type"],
+    credentials: true,
     maxAge: 86400,
   })
 );
@@ -46,9 +47,27 @@ app.route("/api/urban-planning", urbanPlanningRoutes);
 
 // Default route
 app.get("/", (c) => {
-  return c.json({ message: "Welcome to UAQMP API" });
+  return c.json({
+    message: "Welcome to UAQMP API",
+    version: "1.0.0",
+    endpoints: [
+      "/api/current",
+      "/api/components",
+      "/api/forecast",
+      "/api/store-air-quality",
+      "/api/news/air-quality",
+      "/api/predict/hourly",
+      "/api/predict/weekly",
+      "/api/urban-planning/recommendations",
+    ],
+  });
+});
+
+// Add a catch-all OPTIONS route to handle preflight requests properly
+app.options("*", (c) => {
+  c.status(204);
+  return c.body(null);
 });
 
 // For Cloudflare Workers, we need to export the app directly
-// Do NOT use the "if (require.main === module)" pattern here
 export default app;
