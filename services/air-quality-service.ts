@@ -214,8 +214,8 @@ export const airQualityService = {
       if (!OPENWEATHER_API_KEY) {
         console.error("CRITICAL: Cannot make API request without API key");
 
-        // Instead of throwing, we'll return a structured error response
-        // This will allow the frontend to display a more user-friendly message
+        // Return a structured error response with ALL required fields
+        // to prevent frontend from trying to access undefined properties
         return {
           error: true,
           message:
@@ -223,6 +223,22 @@ export const airQualityService = {
           status: 500,
           timestamp: Date.now(),
           location: { lat, lon },
+          // Add these fields to ensure the frontend doesn't try to access undefined properties
+          aqi: 0,
+          openWeatherAqi: 0,
+          level: "Error",
+          description: "Error fetching data",
+          color: "gray",
+          components: {
+            co: 0,
+            no: 0,
+            no2: 0,
+            o3: 0,
+            so2: 0,
+            pm2_5: 0,
+            pm10: 0,
+            nh3: 0,
+          },
         };
       }
 
@@ -235,6 +251,22 @@ export const airQualityService = {
           status: 400,
           timestamp: Date.now(),
           location: { lat, lon },
+          // Add default values for all fields
+          aqi: 0,
+          openWeatherAqi: 0,
+          level: "Error",
+          description: "Invalid coordinates",
+          color: "gray",
+          components: {
+            co: 0,
+            no: 0,
+            no2: 0,
+            o3: 0,
+            so2: 0,
+            pm2_5: 0,
+            pm10: 0,
+            nh3: 0,
+          },
         };
       }
 
@@ -276,6 +308,22 @@ export const airQualityService = {
             status: 502,
             timestamp: Date.now(),
             location: { lat, lon },
+            // Add default values
+            aqi: 0,
+            openWeatherAqi: 0,
+            level: "Error",
+            description: "Invalid API response",
+            color: "gray",
+            components: {
+              co: 0,
+              no: 0,
+              no2: 0,
+              o3: 0,
+              so2: 0,
+              pm2_5: 0,
+              pm10: 0,
+              nh3: 0,
+            },
           };
         }
 
@@ -303,6 +351,7 @@ export const airQualityService = {
           color: getAqiColor(standardAqi),
           components: data.components,
           location: { lat, lon },
+          error: false, // Explicitly mark as not an error
         };
       } catch (axiosError: any) {
         // Handle Axios-specific errors with detailed logging
@@ -328,6 +377,22 @@ export const airQualityService = {
           },
           timestamp: Date.now(),
           location: { lat, lon },
+          // Add default values for all required fields
+          aqi: 0,
+          openWeatherAqi: 0,
+          level: "Error",
+          description: "API connection error",
+          color: "gray",
+          components: {
+            co: 0,
+            no: 0,
+            no2: 0,
+            o3: 0,
+            so2: 0,
+            pm2_5: 0,
+            pm10: 0,
+            nh3: 0,
+          },
         };
       }
     } catch (error: any) {
@@ -340,6 +405,22 @@ export const airQualityService = {
         status: 500,
         timestamp: Date.now(),
         location: { lat, lon },
+        // Add default values
+        aqi: 0,
+        openWeatherAqi: 0,
+        level: "Error",
+        description: "Unexpected error",
+        color: "gray",
+        components: {
+          co: 0,
+          no: 0,
+          no2: 0,
+          o3: 0,
+          so2: 0,
+          pm2_5: 0,
+          pm10: 0,
+          nh3: 0,
+        },
       };
     }
   },
@@ -350,48 +431,112 @@ export const airQualityService = {
 
       if (!OPENWEATHER_API_KEY) {
         console.error("Cannot make components API request without API key");
-        throw new Error(
-          "OpenWeather API key is missing. Check your environment variables."
-        );
+
+        // Return default component values instead of throwing error
+        return {
+          co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
+          no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
+          no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
+          o3: { value: 0, unit: "μg/m³", name: "Ozone" },
+          so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
+          pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
+          pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
+          nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
+          error: "API key missing",
+        };
       }
 
-      const response = await axios.get(`${BASE_URL}/air_pollution`, {
-        params: {
-          lat,
-          lon,
-          appid: OPENWEATHER_API_KEY,
-        },
-        timeout: 10000, // 10 second timeout
-      });
+      try {
+        const response = await axios.get(`${BASE_URL}/air_pollution`, {
+          params: {
+            lat,
+            lon,
+            appid: OPENWEATHER_API_KEY,
+          },
+          timeout: 10000, // 10 second timeout
+        });
 
-      // Basic validation
-      if (!response.data || !response.data.list || !response.data.list[0]) {
-        throw new Error("Invalid data structure returned from OpenWeather API");
+        // Basic validation
+        if (!response.data || !response.data.list || !response.data.list[0]) {
+          console.error("Invalid data structure returned from OpenWeather API");
+
+          // Return default values
+          return {
+            co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
+            no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
+            no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
+            o3: { value: 0, unit: "μg/m³", name: "Ozone" },
+            so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
+            pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
+            pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
+            nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
+            error: "Invalid API response",
+          };
+        }
+
+        const components = response.data.list[0].components;
+
+        return {
+          co: { value: components.co, unit: "μg/m³", name: "Carbon Monoxide" },
+          no: {
+            value: components.no,
+            unit: "μg/m³",
+            name: "Nitrogen Monoxide",
+          },
+          no2: {
+            value: components.no2,
+            unit: "μg/m³",
+            name: "Nitrogen Dioxide",
+          },
+          o3: { value: components.o3, unit: "μg/m³", name: "Ozone" },
+          so2: {
+            value: components.so2,
+            unit: "μg/m³",
+            name: "Sulphur Dioxide",
+          },
+          pm2_5: {
+            value: components.pm2_5,
+            unit: "μg/m³",
+            name: "Fine Particles",
+          },
+          pm10: {
+            value: components.pm10,
+            unit: "μg/m³",
+            name: "Coarse Particles",
+          },
+          nh3: { value: components.nh3, unit: "μg/m³", name: "Ammonia" },
+        };
+      } catch (axiosError) {
+        console.error("Error fetching component data:", axiosError);
+
+        // Return default values
+        return {
+          co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
+          no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
+          no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
+          o3: { value: 0, unit: "μg/m³", name: "Ozone" },
+          so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
+          pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
+          pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
+          nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
+          error: "API request failed",
+        };
       }
-
-      const components = response.data.list[0].components;
-
-      return {
-        co: { value: components.co, unit: "μg/m³", name: "Carbon Monoxide" },
-        no: { value: components.no, unit: "μg/m³", name: "Nitrogen Monoxide" },
-        no2: { value: components.no2, unit: "μg/m³", name: "Nitrogen Dioxide" },
-        o3: { value: components.o3, unit: "μg/m³", name: "Ozone" },
-        so2: { value: components.so2, unit: "μg/m³", name: "Sulphur Dioxide" },
-        pm2_5: {
-          value: components.pm2_5,
-          unit: "μg/m³",
-          name: "Fine Particles",
-        },
-        pm10: {
-          value: components.pm10,
-          unit: "μg/m³",
-          name: "Coarse Particles",
-        },
-        nh3: { value: components.nh3, unit: "μg/m³", name: "Ammonia" },
-      };
     } catch (error) {
       console.error("Error in getAirQualityComponents:", error);
-      throw error;
+
+      // Return default values
+      return {
+        co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
+        no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
+        no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
+        o3: { value: 0, unit: "μg/m³", name: "Ozone" },
+        so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
+        pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
+        pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
+        nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
+        error: "Unexpected error",
+      };
     }
   },
 
