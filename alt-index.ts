@@ -203,7 +203,7 @@ if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(
-      `Try accessing: http://localhost:${PORT}/api/current?lat=13.04&lon=80.18`
+      `Try accessing: https://uaqmp-api.hanishrishen.workers.dev/api/current?lat=13.04&lon=80.18`
     );
   });
 }

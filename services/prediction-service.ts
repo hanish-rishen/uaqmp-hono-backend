@@ -225,7 +225,7 @@ export const predictionService = {
     try {
       // Try to get current AQ from backend API
       const response = await axios.get(
-        `http://localhost:3001/api/current?lat=${lat}&lon=${lon}`
+        `https://uaqmp-api.hanishrishen.workers.dev/api/current?lat=${lat}&lon=${lon}`
       );
       return {
         aqi: response.data.aqi,

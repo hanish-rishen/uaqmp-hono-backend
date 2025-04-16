@@ -1,5 +1,25 @@
 import axios from "axios";
-import osmtogeojson from "osmtogeojson";
+
+// Import osmtogeojson using require to avoid TypeScript module resolution issues
+// @ts-ignore - Ignore the type error for the require statement
+const osmtogeojson = require("osmtogeojson");
+
+// Define GeoJSON types inline
+namespace GeoJSON {
+  export interface FeatureCollection {
+    type: "FeatureCollection";
+    features: Feature[];
+  }
+
+  export interface Feature {
+    type: string;
+    geometry: any;
+    properties: {
+      [key: string]: any;
+      featureType?: string;
+    };
+  }
+}
 
 // Define allowed feature types
 const allowedFeatureTypes = [
@@ -76,7 +96,7 @@ export const osmService = {
       ) as GeoJSON.FeatureCollection;
 
       // Add featureType property for easier frontend styling/filtering
-      geojsonData.features.forEach((feature) => {
+      geojsonData.features.forEach((feature: GeoJSON.Feature) => {
         for (const type of featureTypes) {
           const tagKey = featureTags[type].split("=")[0].replace(/"/g, ""); // e.g., "building", "leisure", "amenity"
           const tagValue = featureTags[type].split("=")[1]?.replace(/"/g, ""); // e.g., "park", "hospital"

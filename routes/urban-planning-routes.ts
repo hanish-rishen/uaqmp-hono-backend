@@ -94,7 +94,9 @@ app.post("/recommendations", async (c) => {
         method: "POST",
         headers: {
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": process.env.SITE_URL || "http://localhost:3001",
+          "HTTP-Referer":
+            process.env.SITE_URL ||
+            "https://uaqmp-api.hanishrishen.workers.dev",
           "X-Title": "Urban Air Quality Management Platform",
           "Content-Type": "application/json",
         },
