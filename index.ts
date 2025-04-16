@@ -2,28 +2,54 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { airQualityRoutes } from "./routes/air-quality";
-import { config } from "dotenv";
+import { newsRoutes } from "./routes/news-routes";
+import { predictionRoutes } from "./routes/prediction-routes";
+import { urbanPlanningRoutes } from "./routes/urban-planning-routes";
 import { createServer } from "http";
 
-// Load environment variables
-config();
+// Instead of loading dotenv, use Workers environment variables
+
+// Initialize global variable for AQ data
+declare global {
+  var lastAirQualityData: {
+    aqi: number;
+    level: string;
+    components: Record<string, number>;
+    location: { lat: string; lon: string };
+    timestamp: number;
+  } | null;
+}
+
+declare global {
+  interface RequestInit {
+    duplex?: "half";
+  }
+}
+
+if (typeof global.lastAirQualityData === "undefined") {
+  global.lastAirQualityData = null;
+}
 
 const app = new Hono();
 
-// Middleware
-app.use(logger());
+// CORS middleware needed for cross-origin requests from your frontend
 app.use(
   cors({
-    origin: "*",
-    allowMethods: ["GET", "POST"],
+    origin: ["https://uaqmp.vercel.app", "http://localhost:3000"],
+    allowMethods: ["GET", "POST", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     exposeHeaders: ["Content-Length"],
     maxAge: 86400,
   })
 );
 
+app.use(logger());
+
 // Routes
 app.route("/api", airQualityRoutes);
+app.route("/api/news", newsRoutes);
+app.route("/api/predict", predictionRoutes);
+app.route("/api/urban-planning", urbanPlanningRoutes);
 
 // Default route
 app.get("/", (c) => {
@@ -63,8 +89,14 @@ if (require.main === module) {
 
       // Add body for non-GET/HEAD requests
       if (!["GET", "HEAD"].includes(method)) {
-        // Important: Added duplex option as required by Node.js v20+
-        requestInit.body = req;
+        // Convert Node.js readable stream to Web ReadableStream
+        requestInit.body = new ReadableStream({
+          start(controller) {
+            req.on("data", (chunk) => controller.enqueue(chunk));
+            req.on("end", () => controller.close());
+            req.on("error", (err) => controller.error(err));
+          },
+        });
         requestInit.duplex = "half";
       }
 
