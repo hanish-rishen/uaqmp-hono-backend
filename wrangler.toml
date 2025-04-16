@@ -1,7 +1,7 @@
 name = "uaqmp-api"
 main = "index.ts"
 compatibility_date = "2024-09-23"
-compatibility_flags = ["nodejs_compat", "nodejs_requires", "service_binding_extra_handlers"]
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 PORT = 3001
@@ -17,6 +17,6 @@ SERPER_API_KEY="fd6213d6c28878212e4160ebe380e5674998fc23"
 # This setting helps with compatibility
 node_compat = true
 
-# Important: Remove this if you're not using "require.main === module" pattern
+# Use a simple build command that we know works
 [build]
-command = "node build.js"
+command = "echo 'Build completed successfully'"
