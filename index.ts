@@ -24,10 +24,10 @@ if (typeof global.lastAirQualityData === "undefined") {
 
 const app = new Hono();
 
-// Apply CORS middleware with more explicit configuration
+// Apply CORS middleware with more permissive configuration
 app.use("*", async (c, next) => {
   // Add CORS headers to all responses
-  c.header("Access-Control-Allow-Origin", "https://uaqmp.vercel.app");
+  c.header("Access-Control-Allow-Origin", "*"); // Allow any origin for now to troubleshoot
   c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   c.header(
     "Access-Control-Allow-Headers",
