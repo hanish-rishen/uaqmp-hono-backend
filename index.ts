@@ -32,8 +32,9 @@ if (typeof global.lastAirQualityData === "undefined") {
 
 const app = new Hono();
 
-// CORS middleware needed for cross-origin requests from your frontend
+// Apply CORS middleware globally to all routes
 app.use(
+  "*",
   cors({
     origin: ["https://uaqmp.vercel.app", "http://localhost:3000"],
     allowMethods: ["GET", "POST", "OPTIONS"],
