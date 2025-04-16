@@ -10,7 +10,9 @@ const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
 // Debug the API key (remove in production)
 console.log(
   "API Key being used:",
-  OPENWEATHER_API_KEY ? "API key is set" : "API key is NOT set"
+  OPENWEATHER_API_KEY
+    ? `${OPENWEATHER_API_KEY.substring(0, 5)}...`
+    : "API key is NOT set"
 );
 
 if (!OPENWEATHER_API_KEY) {
@@ -201,61 +203,144 @@ export const airQualityService = {
   async getCurrentAirQuality(lat: string, lon: string) {
     try {
       console.log(
-        `Fetching air quality for: ${lat}, ${lon} with API key: ${OPENWEATHER_API_KEY?.substring(
-          0,
-          5
-        )}...`
+        `Fetching air quality for: ${lat}, ${lon} with API key: ${
+          OPENWEATHER_API_KEY
+            ? OPENWEATHER_API_KEY.substring(0, 5) + "..."
+            : "NOT SET"
+        }`
       );
 
       // Add explicit error handling for API key issues
       if (!OPENWEATHER_API_KEY) {
         console.error("CRITICAL: Cannot make API request without API key");
-        throw new Error(
-          "OpenWeather API key is missing. Check your environment variables."
-        );
+
+        // Instead of throwing, we'll return a structured error response
+        // This will allow the frontend to display a more user-friendly message
+        return {
+          error: true,
+          message:
+            "OpenWeather API key is missing on the server. Contact administrator.",
+          status: 500,
+          timestamp: Date.now(),
+          location: { lat, lon },
+        };
       }
 
-      const response = await axios.get(`${BASE_URL}/air_pollution`, {
-        params: {
-          lat,
-          lon,
-          appid: OPENWEATHER_API_KEY,
-        },
-      });
+      // Add more debugging information and validation
+      if (isNaN(parseFloat(lat)) || isNaN(parseFloat(lon))) {
+        console.error(`Invalid coordinates provided: lat=${lat}, lon=${lon}`);
+        return {
+          error: true,
+          message: "Invalid coordinates provided",
+          status: 400,
+          timestamp: Date.now(),
+          location: { lat, lon },
+        };
+      }
 
-      // Log the full response for debugging
-      console.log(
-        "OpenWeather API Response:",
-        JSON.stringify(response.data, null, 2)
-      );
+      try {
+        // Make the API request with error logging
+        console.log(
+          `Making OpenWeather API request to: ${BASE_URL}/air_pollution?lat=${lat}&lon=${lon}`
+        );
 
-      const data = response.data.list[0];
-      const openWeatherAqi = data.main.aqi;
+        const response = await axios.get(`${BASE_URL}/air_pollution`, {
+          params: {
+            lat,
+            lon,
+            appid: OPENWEATHER_API_KEY,
+          },
+          timeout: 10000, // 10 second timeout
+        });
 
-      // Convert to standard AQI
-      const standardAqi = convertToStandardAQI(openWeatherAqi, data.components);
-      const aqiCategory = getAqiCategory(standardAqi);
+        // Log the full response for debugging
+        console.log(
+          "OpenWeather API Response status:",
+          response.status,
+          response.statusText
+        );
 
-      console.log(
-        `OpenWeather AQI: ${openWeatherAqi}, Converted to standard AQI: ${standardAqi}`
-      );
-      console.log(`AQI Category: ${aqiCategory.level}`);
-      console.log("Air quality components:", data.components);
+        // Verify that the response contains the expected data
+        if (
+          !response.data ||
+          !response.data.list ||
+          response.data.list.length === 0
+        ) {
+          console.error(
+            "OpenWeather API returned empty or invalid data structure:",
+            JSON.stringify(response.data)
+          );
+          return {
+            error: true,
+            message: "OpenWeather API returned empty or invalid data",
+            status: 502,
+            timestamp: Date.now(),
+            location: { lat, lon },
+          };
+        }
+
+        const data = response.data.list[0];
+        const openWeatherAqi = data.main.aqi;
+
+        // Convert to standard AQI
+        const standardAqi = convertToStandardAQI(
+          openWeatherAqi,
+          data.components
+        );
+        const aqiCategory = getAqiCategory(standardAqi);
+
+        console.log(
+          `OpenWeather AQI: ${openWeatherAqi}, Converted to standard AQI: ${standardAqi}`
+        );
+        console.log(`AQI Category: ${aqiCategory.level}`);
+
+        return {
+          timestamp: data.dt * 1000, // Convert to milliseconds
+          aqi: standardAqi, // Use the converted standard AQI
+          openWeatherAqi: openWeatherAqi, // Keep original for reference
+          level: aqiCategory.level,
+          description: aqiCategory.description,
+          color: getAqiColor(standardAqi),
+          components: data.components,
+          location: { lat, lon },
+        };
+      } catch (axiosError: any) {
+        // Handle Axios-specific errors with detailed logging
+        console.error("Axios error details:", {
+          message: axiosError.message,
+          code: axiosError.code,
+          status: axiosError.response?.status,
+          statusText: axiosError.response?.statusText,
+          data: axiosError.response?.data,
+        });
+
+        // Create a structured error response
+        return {
+          error: true,
+          message: `OpenWeather API error: ${axiosError.message}`,
+          status: axiosError.response?.status || 503,
+          axiosError: {
+            message: axiosError.message,
+            code: axiosError.code,
+            status: axiosError.response?.status,
+            statusText: axiosError.response?.statusText,
+            data: axiosError.response?.data,
+          },
+          timestamp: Date.now(),
+          location: { lat, lon },
+        };
+      }
+    } catch (error: any) {
+      // Catch any other unexpected errors
+      console.error("Unexpected error in getCurrentAirQuality:", error);
 
       return {
-        timestamp: data.dt * 1000, // Convert to milliseconds
-        aqi: standardAqi, // Use the converted standard AQI
-        openWeatherAqi: openWeatherAqi, // Keep original for reference
-        level: aqiCategory.level,
-        description: aqiCategory.description,
-        color: getAqiColor(standardAqi),
-        components: data.components,
+        error: true,
+        message: `Unexpected error: ${error.message || "Unknown error"}`,
+        status: 500,
+        timestamp: Date.now(),
         location: { lat, lon },
       };
-    } catch (error) {
-      console.error("Error in getCurrentAirQuality:", error);
-      // Don't return mock data, throw the error to be handled by the caller
-      throw error;
     }
   },
 
@@ -264,6 +349,7 @@ export const airQualityService = {
       console.log(`Fetching air quality components for: ${lat}, ${lon}`);
 
       if (!OPENWEATHER_API_KEY) {
+        console.error("Cannot make components API request without API key");
         throw new Error(
           "OpenWeather API key is missing. Check your environment variables."
         );
@@ -275,7 +361,13 @@ export const airQualityService = {
           lon,
           appid: OPENWEATHER_API_KEY,
         },
+        timeout: 10000, // 10 second timeout
       });
+
+      // Basic validation
+      if (!response.data || !response.data.list || !response.data.list[0]) {
+        throw new Error("Invalid data structure returned from OpenWeather API");
+      }
 
       const components = response.data.list[0].components;
 
