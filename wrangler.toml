@@ -6,17 +6,13 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 PORT = 3001
 SITE_URL = "https://uaqmp.vercel.app"
-
-[vars.API_KEYS]
-OPENWEATHER_API_KEY = "5641600880e9678df1ced0cb6536e1b0"
+OPENWEATHER_API_KEY = "5641600880e9678df1ced0cb6536e1b0" 
 OPENROUTER_API_KEY = "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"
 GEMINI_API_KEY = "AIzaSyAjR-i46hHhAFBAqOCfVWlBPvLGmE68yG0"
-SERPER_API_KEY="fd6213d6c28878212e4160ebe380e5674998fc23"
+SERPER_API_KEY = "fd6213d6c28878212e4160ebe380e5674998fc23"
 
 # Workers doesn't use Node.js's require() by default
 # This setting helps with compatibility
 node_compat = true
 
-# Use a simple build command that we know works
-[build]
-command = "echo 'Build completed successfully'"
+# No build command to simplify deployment
