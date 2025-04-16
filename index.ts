@@ -24,18 +24,28 @@ if (typeof global.lastAirQualityData === "undefined") {
 
 const app = new Hono();
 
-// Apply CORS middleware globally to all routes with more permissive settings
-app.use(
-  "*",
-  cors({
-    origin: ["*"], // Allow all origins for now to debug
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "Accept"],
-    exposeHeaders: ["Content-Length", "Content-Type"],
-    credentials: true,
-    maxAge: 86400,
-  })
-);
+// Apply CORS middleware with more explicit configuration
+app.use("*", async (c, next) => {
+  // Add CORS headers to all responses
+  c.header("Access-Control-Allow-Origin", "https://uaqmp.vercel.app");
+  c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  c.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Accept"
+  );
+  c.header("Access-Control-Max-Age", "86400");
+  c.header("Access-Control-Allow-Credentials", "true");
+
+  // Handle preflight OPTIONS requests
+  if (c.req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: c.res.headers,
+    });
+  }
+
+  await next();
+});
 
 app.use(logger());
 
