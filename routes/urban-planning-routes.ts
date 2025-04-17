@@ -83,10 +83,10 @@ app.post("/recommendations", async (c) => {
       return c.json({ error: "Prompt is required" }, 400);
     }
 
-    // Get API key from Cloudflare environment - must use c.env in Cloudflare Workers
+    // Get API key from Cloudflare environment
     const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
 
-    // More detailed debugging for the API key
+    // Debug the API key (but don't show the full key in logs)
     console.log(`API key exists: ${!!OPENROUTER_API_KEY}`);
     if (OPENROUTER_API_KEY) {
       console.log(`API key length: ${OPENROUTER_API_KEY.length}`);
@@ -95,11 +95,8 @@ app.post("/recommendations", async (c) => {
       );
     }
 
-    // Check if API key exists and log appropriately
     if (!OPENROUTER_API_KEY) {
-      console.error(
-        "ERROR: OpenRouter API key not found in environment variables"
-      );
+      console.error("ERROR: OpenRouter API key not found");
       return c.json(
         {
           error: "Configuration error: OpenRouter API key is not available",
@@ -109,52 +106,71 @@ app.post("/recommendations", async (c) => {
       );
     }
 
-    console.log("Making request to OpenRouter API");
-
-    // The payload according to OpenRouter documentation
-    const payload = {
-      model: "deepseek/deepseek-chat-v3-0324:free",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an expert urban planning assistant that provides recommendations based on topology, population density, and air quality data. Your recommendations should be practical, sustainable, and aimed at improving urban environments.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    };
-
-    // Try direct fetch with proper headers according to OpenRouter docs
+    // Construct a simpler request object using undici fetch, which is used by Cloudflare Workers
     try {
-      // Explicitly create headers according to OpenRouter documentation
-      const headers = new Headers();
-      headers.append("Authorization", `Bearer ${OPENROUTER_API_KEY}`);
-      headers.append("Content-Type", "application/json");
-      headers.append(
-        "HTTP-Referer",
-        "https://uaqmp-api.hanishrishen.workers.dev"
+      console.log("Sending OpenRouter request with undici fetch");
+
+      // Create a simple object payload
+      const requestBody = {
+        model: "anthropic/claude-3-opus:beta", // Trying a different model
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an expert urban planning assistant that provides recommendations based on topology, population density, and air quality data.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      };
+
+      // Using a plain object for headers
+      const requestOptions = {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
+          "X-Title": "Urban Air Quality Management Platform",
+        },
+        body: JSON.stringify(requestBody),
+      };
+
+      // Print exactly what we're sending (without the full API key)
+      console.log(
+        "Request URL:",
+        "https://openrouter.ai/api/v1/chat/completions"
       );
-      headers.append("X-Title", "Urban Air Quality Management Platform");
+      console.log("Request headers:", Object.keys(requestOptions.headers));
 
-      console.log("Sending with headers:", Array.from(headers.keys()));
-
+      // Use the fetch API directly
       const response = await fetch(
         "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
-          headers: headers,
-          body: JSON.stringify(payload),
-        }
+        requestOptions
       );
 
-      console.log("OpenRouter API response status:", response.status);
+      console.log("Response status:", response.status);
+      console.log("Response headers:", [...response.headers.entries()]);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("OpenRouter API error:", errorText);
+        console.error("Error response body:", errorText);
+
+        // Create a direct curl command that can be executed for debugging
+        const curlCommand = `curl -X POST "https://openrouter.ai/api/v1/chat/completions" \\
+          -H "Authorization: Bearer YOUR_API_KEY" \\
+          -H "Content-Type: application/json" \\
+          -H "HTTP-Referer: https://uaqmp-api.hanishrishen.workers.dev" \\
+          -H "X-Title: Urban Air Quality Management Platform" \\
+          -d '${JSON.stringify(requestBody)}'`;
+
+        console.log(
+          "Debug curl command (replace YOUR_API_KEY with actual key):",
+          curlCommand
+        );
+
         return c.json(
           {
             error: "OpenRouter API error",
@@ -166,59 +182,66 @@ app.post("/recommendations", async (c) => {
       }
 
       const data = await response.json();
-      console.log("Received recommendation from OpenRouter");
+      console.log("Response received successfully");
 
       const recommendation =
         data.choices?.[0]?.message?.content ||
         "No recommendation could be generated at this time.";
 
       return c.json({ recommendation });
-    } catch (fetchError) {
-      console.error("Fetch error with OpenRouter API:", fetchError);
+    } catch (error) {
+      console.error("Error making OpenRouter request:", error);
 
-      // Fall back to axios as a second attempt with different headers approach
+      // Let's try one more approach with axios without complex settings
+      console.log("Trying simple axios approach as last resort");
       try {
-        console.log("Trying axios as fallback...");
-        const axiosHeaders = {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
-          "X-Title": "Urban Air Quality Management Platform",
-        };
-
-        console.log("Axios headers:", Object.keys(axiosHeaders));
-
         const axiosResponse = await axios({
           method: "post",
           url: "https://openrouter.ai/api/v1/chat/completions",
-          headers: axiosHeaders,
-          data: payload,
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          data: {
+            model: "openai/gpt-3.5-turbo", // Using a different model as last resort
+            messages: [
+              {
+                role: "user",
+                content:
+                  "Please provide urban planning recommendations for the following area: " +
+                  prompt,
+              },
+            ],
+          },
         });
 
-        console.log("Axios response status:", axiosResponse.status);
-
-        const recommendation =
-          axiosResponse.data.choices?.[0]?.message?.content ||
-          "No recommendation could be generated at this time.";
-
-        return c.json({ recommendation });
-      } catch (axiosError: any) {
-        console.error("Axios fallback also failed:", axiosError.message);
-        if (axiosError.response) {
-          console.error("Axios error response:", axiosError.response.data);
+        return c.json({
+          recommendation:
+            axiosResponse.data?.choices?.[0]?.message?.content ||
+            "Generated using fallback method.",
+        });
+      } catch (finalError: any) {
+        console.error("Final attempt failed:", finalError.message);
+        if (finalError.response) {
+          console.error("Response data:", finalError.response.data);
         }
-        throw axiosError;
+
+        return c.json(
+          {
+            error: "API Authentication failed",
+            message:
+              "Unable to authenticate with OpenRouter API. Please verify your API key.",
+          },
+          500
+        );
       }
     }
   } catch (error) {
-    console.error("Error in OpenRouter API:", error);
-
-    // Return the actual error rather than fallback data
+    console.error("Request processing error:", error);
     return c.json(
       {
-        error: "Failed to process request",
-        message:
-          error instanceof Error ? error.message : "Unknown error occurred",
+        error: "Request failed",
+        message: error instanceof Error ? error.message : "Unknown error",
       },
       500
     );
