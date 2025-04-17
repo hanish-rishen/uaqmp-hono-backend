@@ -111,70 +111,103 @@ app.post("/recommendations", async (c) => {
 
     console.log("Making request to OpenRouter API");
 
-    // Create headers explicitly and verify they are correctly formatted
-    const headers = {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
-      "X-Title": "Urban Air Quality Management Platform",
-      "Content-Type": "application/json",
+    // The payload according to OpenRouter documentation
+    const payload = {
+      model: "deepseek/deepseek-chat-v3-0324:free",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert urban planning assistant that provides recommendations based on topology, population density, and air quality data. Your recommendations should be practical, sustainable, and aimed at improving urban environments.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
     };
 
-    console.log("Request headers:", Object.keys(headers));
-
-    // Try using axios instead of fetch - sometimes fetch has issues with headers
+    // Try direct fetch with proper headers according to OpenRouter docs
     try {
-      const response = await axios.post(
+      // Explicitly create headers according to OpenRouter documentation
+      const headers = new Headers();
+      headers.append("Authorization", `Bearer ${OPENROUTER_API_KEY}`);
+      headers.append("Content-Type", "application/json");
+      headers.append(
+        "HTTP-Referer",
+        "https://uaqmp-api.hanishrishen.workers.dev"
+      );
+      headers.append("X-Title", "Urban Air Quality Management Platform");
+
+      console.log("Sending with headers:", Array.from(headers.keys()));
+
+      const response = await fetch(
         "https://openrouter.ai/api/v1/chat/completions",
         {
-          model: "deepseek/deepseek-chat-v3-0324:free",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are an expert urban planning assistant that provides recommendations based on topology, population density, and air quality data. Your recommendations should be practical, sustainable, and aimed at improving urban environments.",
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-        },
-        { headers }
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify(payload),
+        }
       );
 
       console.log("OpenRouter API response status:", response.status);
 
-      const data = response.data;
-      console.log("Received recommendation from OpenRouter");
-
-      const recommendation =
-        data.choices[0]?.message?.content ||
-        "No recommendation could be generated at this time.";
-
-      return c.json({ recommendation });
-    } catch (axiosError: any) {
-      // Extract error details from Axios error
-      console.error("OpenRouter API error:", axiosError.message);
-      if (axiosError.response) {
-        console.error("Error response data:", axiosError.response.data);
-        console.error("Error status:", axiosError.response.status);
-
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("OpenRouter API error:", errorText);
         return c.json(
           {
             error: "OpenRouter API error",
-            status: axiosError.response.status,
-            details: JSON.stringify(axiosError.response.data),
+            status: response.status,
+            details: errorText,
           },
           500
         );
-      } else {
-        return c.json(
-          {
-            error: "Network error communicating with OpenRouter API",
-            message: axiosError.message,
-          },
-          500
-        );
+      }
+
+      const data = await response.json();
+      console.log("Received recommendation from OpenRouter");
+
+      const recommendation =
+        data.choices?.[0]?.message?.content ||
+        "No recommendation could be generated at this time.";
+
+      return c.json({ recommendation });
+    } catch (fetchError) {
+      console.error("Fetch error with OpenRouter API:", fetchError);
+
+      // Fall back to axios as a second attempt with different headers approach
+      try {
+        console.log("Trying axios as fallback...");
+        const axiosHeaders = {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
+          "X-Title": "Urban Air Quality Management Platform",
+        };
+
+        console.log("Axios headers:", Object.keys(axiosHeaders));
+
+        const axiosResponse = await axios({
+          method: "post",
+          url: "https://openrouter.ai/api/v1/chat/completions",
+          headers: axiosHeaders,
+          data: payload,
+        });
+
+        console.log("Axios response status:", axiosResponse.status);
+
+        const recommendation =
+          axiosResponse.data.choices?.[0]?.message?.content ||
+          "No recommendation could be generated at this time.";
+
+        return c.json({ recommendation });
+      } catch (axiosError: any) {
+        console.error("Axios fallback also failed:", axiosError.message);
+        if (axiosError.response) {
+          console.error("Axios error response:", axiosError.response.data);
+        }
+        throw axiosError;
       }
     }
   } catch (error) {
