@@ -86,6 +86,15 @@ app.post("/recommendations", async (c) => {
     // Get API key from Cloudflare environment - must use c.env in Cloudflare Workers
     const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
 
+    // More detailed debugging for the API key
+    console.log(`API key exists: ${!!OPENROUTER_API_KEY}`);
+    if (OPENROUTER_API_KEY) {
+      console.log(`API key length: ${OPENROUTER_API_KEY.length}`);
+      console.log(
+        `API key starts with: ${OPENROUTER_API_KEY.substring(0, 3)}...`
+      );
+    }
+
     // Check if API key exists and log appropriately
     if (!OPENROUTER_API_KEY) {
       console.error(
@@ -102,18 +111,21 @@ app.post("/recommendations", async (c) => {
 
     console.log("Making request to OpenRouter API");
 
-    // Ensure we're using the Authorization header correctly with 'Bearer' prefix
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
-          "X-Title": "Urban Air Quality Management Platform",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+    // Create headers explicitly and verify they are correctly formatted
+    const headers = {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
+      "X-Title": "Urban Air Quality Management Platform",
+      "Content-Type": "application/json",
+    };
+
+    console.log("Request headers:", Object.keys(headers));
+
+    // Try using axios instead of fetch - sometimes fetch has issues with headers
+    try {
+      const response = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
           model: "deepseek/deepseek-chat-v3-0324:free",
           messages: [
             {
@@ -126,37 +138,45 @@ app.post("/recommendations", async (c) => {
               content: prompt,
             },
           ],
-        }),
-      }
-    );
-
-    // Log response status for debugging
-    console.log("OpenRouter API response status:", response.status);
-
-    // If the response is not OK, return the actual error to the client
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("OpenRouter API error:", errorText);
-
-      // Return the actual error message to the client with a fixed status code instead of dynamic one
-      return c.json(
-        {
-          error: "OpenRouter API error",
-          status: response.status,
-          details: errorText,
         },
-        500 // Using 500 as a fixed status code instead of response.status which causes a type error
+        { headers }
       );
+
+      console.log("OpenRouter API response status:", response.status);
+
+      const data = response.data;
+      console.log("Received recommendation from OpenRouter");
+
+      const recommendation =
+        data.choices[0]?.message?.content ||
+        "No recommendation could be generated at this time.";
+
+      return c.json({ recommendation });
+    } catch (axiosError: any) {
+      // Extract error details from Axios error
+      console.error("OpenRouter API error:", axiosError.message);
+      if (axiosError.response) {
+        console.error("Error response data:", axiosError.response.data);
+        console.error("Error status:", axiosError.response.status);
+
+        return c.json(
+          {
+            error: "OpenRouter API error",
+            status: axiosError.response.status,
+            details: JSON.stringify(axiosError.response.data),
+          },
+          500
+        );
+      } else {
+        return c.json(
+          {
+            error: "Network error communicating with OpenRouter API",
+            message: axiosError.message,
+          },
+          500
+        );
+      }
     }
-
-    const data = await response.json();
-    console.log("Received recommendation from OpenRouter");
-
-    const recommendation =
-      data.choices[0]?.message?.content ||
-      "No recommendation could be generated at this time.";
-
-    return c.json({ recommendation });
   } catch (error) {
     console.error("Error in OpenRouter API:", error);
 
