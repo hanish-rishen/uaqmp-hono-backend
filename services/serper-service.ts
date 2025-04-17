@@ -1,11 +1,32 @@
 import axios from "axios";
 
 // Initialize Serper API
-const SERPER_API_KEY = process.env.SERPER_API_KEY || "";
+let SERPER_API_KEY: string | undefined = process.env.SERPER_API_KEY || "";
 const SERPER_API_URL = "https://google.serper.dev/search";
 
+// Access the API key from Cloudflare Workers environment if available
+if (typeof SERPER_API_KEY === "undefined" || SERPER_API_KEY === "") {
+  try {
+    // Try to access from global scope in Cloudflare Workers
+    SERPER_API_KEY =
+      (typeof self !== "undefined" && (self as any).SERPER_API_KEY) ||
+      (typeof globalThis !== "undefined" && (globalThis as any).SERPER_API_KEY);
+  } catch (e) {
+    console.error("Error accessing Serper API key from environment:", e);
+  }
+}
+
+// Log warning if key is still not set
 if (!SERPER_API_KEY) {
   console.error("WARNING: Serper API key is not set in environment variables!");
+}
+
+// Export a function to update the API key at runtime
+export function setSerperApiKey(apiKey: string) {
+  if (apiKey) {
+    SERPER_API_KEY = apiKey;
+    console.log(`Serper API key set manually: ${apiKey.substring(0, 5)}...`);
+  }
 }
 
 interface SearchResult {
@@ -23,9 +44,22 @@ export interface SerperResponse {
 
 export const serperService = {
   // Search for articles in a single request to reduce API calls
-  async search(query: string): Promise<SerperResponse> {
+  async search(query: string, apiKey?: string): Promise<SerperResponse> {
     try {
+      // If API key is passed directly to this function, use it
+      if (apiKey) {
+        SERPER_API_KEY = apiKey;
+      }
+
       console.log(`Searching for content about: ${query}`);
+      console.log(
+        `Using Serper API Key: ${SERPER_API_KEY ? "Available" : "NOT SET"}`
+      );
+
+      if (!SERPER_API_KEY) {
+        console.error("Cannot search without Serper API key");
+        return { searchResults: [] };
+      }
 
       // Make a single request for articles only
       const response = await axios.post(
@@ -34,8 +68,6 @@ export const serperService = {
           q: query + " latest news report data",
           gl: "us",
           hl: "en",
-          num: 10, // Increased from 5 to 10 results
-          tbs: "qdr:m", // Last month only for recency
         },
         {
           headers: {
@@ -45,30 +77,19 @@ export const serperService = {
         }
       );
 
-      console.log("Serper API response status:", response.status);
-
-      const results = response.data;
-      console.log("Organic results count:", results.organic?.length || 0);
-
-      // Process and extract news results
-      const searchResults: SearchResult[] = (results.organic || [])
+      // Process the response data
+      const organicResults = response.data?.organic || [];
+      const searchResults = organicResults
         .map((item: any, index: number) => {
-          // Try to parse date from snippet or title if available
-          const dateMatch =
-            (item.snippet &&
-              item.snippet.match(
-                /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\b/
-              )) ||
-            (item.title &&
-              item.title.match(
-                /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\b/
-              ));
-
-          const date = dateMatch ? dateMatch[0] : "";
-
           // Extract source from link
           const urlObj = new URL(item.link);
           const source = urlObj.hostname.replace("www.", "");
+
+          // Attempt to extract date if available
+          let date: string | undefined = undefined;
+          if (item.date) {
+            date = item.date;
+          }
 
           return {
             title: item.title || "Untitled",
