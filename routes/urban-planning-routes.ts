@@ -2,10 +2,16 @@ import { Hono } from "hono";
 import * as dotenv from "dotenv";
 import axios from "axios";
 
-// Load environment variables
+// Load environment variables for local development
 dotenv.config();
 
-const app = new Hono();
+// Define the environment variables type for Cloudflare Workers
+interface Env {
+  OPENROUTER_API_KEY?: string;
+  [key: string]: unknown;
+}
+
+const app = new Hono<{ Bindings: Env }>();
 
 // Get elevation data - using the most basic approach possible to avoid parsing errors
 app.get("/topology", async (c) => {
@@ -77,7 +83,13 @@ app.post("/recommendations", async (c) => {
       return c.json({ error: "Prompt is required" }, 400);
     }
 
-    const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+    // Get API key from Cloudflare environment
+    let OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
+
+    // Fallback to process.env only for local development
+    if (!OPENROUTER_API_KEY) {
+      OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+    }
 
     if (!OPENROUTER_API_KEY) {
       throw new Error("OpenRouter API key is not set in environment variables");
@@ -85,7 +97,7 @@ app.post("/recommendations", async (c) => {
 
     console.log(
       "Making request to OpenRouter API with key:",
-      OPENROUTER_API_KEY.substring(0, 10) + "..."
+      OPENROUTER_API_KEY.substring(0, 5) + "..."
     );
 
     const response = await fetch(
