@@ -1,23 +1,52 @@
 import axios from "axios";
 import * as dotenv from "dotenv";
 
-// Ensure environment variables are loaded
-dotenv.config();
+// Try to load environment variables, but this won't work in Cloudflare Workers
+// This is just for local development
+try {
+  dotenv.config();
+} catch (e) {
+  console.log(
+    "dotenv not available, running in Cloudflare Workers environment"
+  );
+}
 
-// Use environment variables from Cloudflare Workers configuration
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
+// For Cloudflare Workers, environment variables are accessible through the global variable
+// See: https://developers.cloudflare.com/workers/platform/environment-variables/
+let OPENWEATHER_API_KEY: string | undefined;
+
+// Cloudflare Workers specific way to access environment variables
+if (typeof OPENWEATHER_API_KEY === "undefined") {
+  try {
+    // Access directly from global scope in Cloudflare Workers
+    OPENWEATHER_API_KEY =
+      OPENWEATHER_API_KEY ||
+      (typeof self !== "undefined" && (self as any).OPENWEATHER_API_KEY) ||
+      (typeof globalThis !== "undefined" &&
+        (globalThis as any).OPENWEATHER_API_KEY);
+
+    // Fallback to Node.js environment variables (for local development)
+    if (!OPENWEATHER_API_KEY && typeof process !== "undefined" && process.env) {
+      OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
+    }
+  } catch (e) {
+    console.error("Error accessing environment variables:", e);
+  }
+}
 
 // Debug the API key (remove in production)
 console.log(
   "API Key being used:",
   OPENWEATHER_API_KEY
-    ? `${OPENWEATHER_API_KEY.substring(0, 5)}...`
-    : "API key is NOT set"
+    ? `${OPENWEATHER_API_KEY.substring(0, 5)}... (${
+        OPENWEATHER_API_KEY.length
+      } chars)`
+    : "API key is NOT SET"
 );
 
 if (!OPENWEATHER_API_KEY) {
   console.error(
-    "WARNING: OpenWeather API key is not set in environment variables!"
+    "⚠️ CRITICAL ERROR: OpenWeather API key is not set! Make sure to add it in the Cloudflare dashboard under Settings > Variables."
   );
 }
 
