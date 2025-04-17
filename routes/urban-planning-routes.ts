@@ -83,32 +83,33 @@ app.post("/recommendations", async (c) => {
       return c.json({ error: "Prompt is required" }, 400);
     }
 
-    // Get API key from Cloudflare environment
-    let OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
+    // Get API key from Cloudflare environment - must use c.env in Cloudflare Workers
+    const OPENROUTER_API_KEY = c.env.OPENROUTER_API_KEY;
 
-    // Fallback to process.env only for local development
+    // Check if API key exists and log appropriately
     if (!OPENROUTER_API_KEY) {
-      OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+      console.error(
+        "ERROR: OpenRouter API key not found in environment variables"
+      );
+      return c.json(
+        {
+          error: "Configuration error: OpenRouter API key is not available",
+          details: "Please check your environment variables",
+        },
+        500
+      );
     }
 
-    if (!OPENROUTER_API_KEY) {
-      throw new Error("OpenRouter API key is not set in environment variables");
-    }
+    console.log("Making request to OpenRouter API");
 
-    console.log(
-      "Making request to OpenRouter API with key:",
-      OPENROUTER_API_KEY.substring(0, 5) + "..."
-    );
-
+    // Ensure we're using the Authorization header correctly with 'Bearer' prefix
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
         method: "POST",
         headers: {
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer":
-            process.env.SITE_URL ||
-            "https://uaqmp-api.hanishrishen.workers.dev",
+          "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
           "X-Title": "Urban Air Quality Management Platform",
           "Content-Type": "application/json",
         },
@@ -129,12 +130,23 @@ app.post("/recommendations", async (c) => {
       }
     );
 
-    console.log("OpenRouter response status:", response.status);
+    // Log response status for debugging
+    console.log("OpenRouter API response status:", response.status);
 
+    // If the response is not OK, return the actual error to the client
     if (!response.ok) {
-      const error = await response.text();
-      console.error("OpenRouter API error:", error);
-      throw new Error(`OpenRouter API error: ${response.status} ${error}`);
+      const errorText = await response.text();
+      console.error("OpenRouter API error:", errorText);
+
+      // Return the actual error message to the client with a fixed status code instead of dynamic one
+      return c.json(
+        {
+          error: "OpenRouter API error",
+          status: response.status,
+          details: errorText,
+        },
+        500 // Using 500 as a fixed status code instead of response.status which causes a type error
+      );
     }
 
     const data = await response.json();
@@ -147,9 +159,12 @@ app.post("/recommendations", async (c) => {
     return c.json({ recommendation });
   } catch (error) {
     console.error("Error in OpenRouter API:", error);
+
+    // Return the actual error rather than fallback data
     return c.json(
       {
-        error:
+        error: "Failed to process request",
+        message:
           error instanceof Error ? error.message : "Unknown error occurred",
       },
       500
