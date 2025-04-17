@@ -121,21 +121,20 @@ app.post("/recommendations", async (c) => {
       // Using fetch with headers exactly as in documentation
       console.log("Sending fetch request to OpenRouter API...");
 
-      // Try different authentication format - directly in URL query parameter
-      const openRouterUrl = new URL(
-        "https://openrouter.ai/api/v1/chat/completions"
+      // Follow the documentation exactly - DO NOT use URL parameters
+      const response = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`, // This is the correct format
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
+            "X-Title": "Urban Air Quality Management Platform",
+          },
+          body: JSON.stringify(requestBody),
+        }
       );
-      openRouterUrl.searchParams.append("api_key", apiKey); // Add API key as query parameter
-
-      const response = await fetch(openRouterUrl.toString(), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
-          "X-Title": "Urban Air Quality Management Platform",
-        },
-        body: JSON.stringify(requestBody),
-      });
 
       console.log("OpenRouter response status:", response.status);
 
