@@ -4,6 +4,13 @@ import * as airQualityServiceModule from "./air-quality-service";
 
 // Initialize Gemini API
 let GEMINI_API_KEY: string | undefined = process.env.GEMINI_API_KEY || "";
+// Make genAI a let instead of const so we can reassign it
+let genAI: any = null;
+
+// Initialize genAI if we have a key
+if (GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+}
 
 // Export a function to update the API key at runtime
 export function setGeminiApiKey(apiKey: string) {
@@ -13,15 +20,11 @@ export function setGeminiApiKey(apiKey: string) {
 
     // Re-initialize genAI with the new key
     if (GEMINI_API_KEY) {
-      // @ts-ignore - Update the module variable
       genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       console.log("✓ Gemini API client re-initialized with new key");
     }
   }
 }
-
-// Initialize GenAI only if we have a key
-const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
 // Cache for news data to avoid repeated API calls
 const newsCache: Record<
