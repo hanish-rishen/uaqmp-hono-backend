@@ -213,215 +213,211 @@ export const airQualityService = {
       // Add explicit error handling for API key issues
       if (!OPENWEATHER_API_KEY) {
         console.error("CRITICAL: Cannot make API request without API key");
-
-        // Return a structured error response with ALL required fields
-        // to prevent frontend from trying to access undefined properties
-        return {
-          error: true,
-          message:
-            "OpenWeather API key is missing on the server. Contact administrator.",
-          status: 500,
-          timestamp: Date.now(),
-          location: { lat, lon },
-          // Add these fields to ensure the frontend doesn't try to access undefined properties
-          aqi: 0,
-          openWeatherAqi: 0,
-          level: "Error",
-          description: "Error fetching data",
-          color: "gray",
-          components: {
-            co: 0,
-            no: 0,
-            no2: 0,
-            o3: 0,
-            so2: 0,
-            pm2_5: 0,
-            pm10: 0,
-            nh3: 0,
-          },
-        };
+        throw new Error(
+          "OpenWeather API key is missing on the server. Contact administrator."
+        );
       }
 
       // Add more debugging information and validation
       if (isNaN(parseFloat(lat)) || isNaN(parseFloat(lon))) {
         console.error(`Invalid coordinates provided: lat=${lat}, lon=${lon}`);
-        return {
-          error: true,
-          message: "Invalid coordinates provided",
-          status: 400,
-          timestamp: Date.now(),
-          location: { lat, lon },
-          // Add default values for all fields
-          aqi: 0,
-          openWeatherAqi: 0,
-          level: "Error",
-          description: "Invalid coordinates",
-          color: "gray",
-          components: {
-            co: 0,
-            no: 0,
-            no2: 0,
-            o3: 0,
-            so2: 0,
-            pm2_5: 0,
-            pm10: 0,
-            nh3: 0,
-          },
-        };
+        throw new Error("Invalid coordinates provided");
       }
 
-      try {
-        // Make the API request with error logging
-        console.log(
-          `Making OpenWeather API request to: ${BASE_URL}/air_pollution?lat=${lat}&lon=${lon}`
-        );
+      // Make the API request with retry logic
+      const MAX_RETRIES = 3;
+      let retryCount = 0;
+      let lastError;
 
-        const response = await axios.get(`${BASE_URL}/air_pollution`, {
-          params: {
-            lat,
-            lon,
-            appid: OPENWEATHER_API_KEY,
-          },
-          timeout: 10000, // 10 second timeout
-        });
+      while (retryCount < MAX_RETRIES) {
+        try {
+          // Enhanced debugging for API request details
+          const requestUrl = `${BASE_URL}/air_pollution?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY.substring(
+            0,
+            3
+          )}...`;
 
-        // Log the full response for debugging
-        console.log(
-          "OpenWeather API Response status:",
-          response.status,
-          response.statusText
-        );
-
-        // Verify that the response contains the expected data
-        if (
-          !response.data ||
-          !response.data.list ||
-          response.data.list.length === 0
-        ) {
-          console.error(
-            "OpenWeather API returned empty or invalid data structure:",
-            JSON.stringify(response.data)
+          console.log(
+            `🔄 API REQUEST ATTEMPT ${retryCount + 1}/${MAX_RETRIES}`
           );
-          return {
-            error: true,
-            message: "OpenWeather API returned empty or invalid data",
-            status: 502,
-            timestamp: Date.now(),
-            location: { lat, lon },
-            // Add default values
-            aqi: 0,
-            openWeatherAqi: 0,
-            level: "Error",
-            description: "Invalid API response",
-            color: "gray",
-            components: {
-              co: 0,
-              no: 0,
-              no2: 0,
-              o3: 0,
-              so2: 0,
-              pm2_5: 0,
-              pm10: 0,
-              nh3: 0,
+          console.log(`📡 Full request URL: ${requestUrl}`);
+          console.log(`🕒 Timestamp: ${new Date().toISOString()}`);
+          console.log(`⏱️ Timeout setting: 30000ms`);
+
+          // Log DNS resolution to check for connectivity issues
+          console.log(`🔍 Attempting to resolve api.openweathermap.org...`);
+
+          // Start timing the request
+          const startTime = Date.now();
+
+          const response = await axios.get(`${BASE_URL}/air_pollution`, {
+            params: {
+              lat,
+              lon,
+              appid: OPENWEATHER_API_KEY,
             },
+            timeout: 30000, // 30 second timeout for better chance of success
+          });
+
+          // Log request duration
+          const duration = Date.now() - startTime;
+          console.log(`⏱️ Request completed in ${duration}ms`);
+
+          console.log(`✅ API RESPONSE RECEIVED:`);
+          console.log(`📊 Status: ${response.status} ${response.statusText}`);
+          console.log(`📦 Headers:`, JSON.stringify(response.headers, null, 2));
+          console.log(
+            `📋 Response data structure:`,
+            Object.keys(response.data || {})
+          );
+
+          if (response.data && response.data.list) {
+            console.log(`📈 List items count: ${response.data.list.length}`);
+            if (response.data.list.length > 0) {
+              console.log(
+                `🔍 First item structure:`,
+                Object.keys(response.data.list[0] || {})
+              );
+              console.log(
+                `🧪 Components available:`,
+                Object.keys(response.data.list[0].components || {})
+              );
+              console.log(
+                `🔢 AQI value from API: ${response.data.list[0].main?.aqi}`
+              );
+              console.log(
+                `🧩 First few component values:`,
+                `PM2.5=${response.data.list[0].components?.pm2_5 || "N/A"}`,
+                `PM10=${response.data.list[0].components?.pm10 || "N/A"}`,
+                `O3=${response.data.list[0].components?.o3 || "N/A"}`
+              );
+            }
+          }
+
+          // Verify that the response contains the expected data
+          if (
+            !response.data ||
+            !response.data.list ||
+            response.data.list.length === 0
+          ) {
+            console.error(
+              "❌ OpenWeather API returned empty or invalid data structure:",
+              JSON.stringify(response.data)
+            );
+            throw new Error("OpenWeather API returned empty or invalid data");
+          }
+
+          const data = response.data.list[0];
+          const openWeatherAqi = data.main.aqi;
+
+          // Convert to standard AQI
+          const standardAqi = convertToStandardAQI(
+            openWeatherAqi,
+            data.components
+          );
+          const aqiCategory = getAqiCategory(standardAqi);
+
+          console.log(
+            `OpenWeather AQI: ${openWeatherAqi}, Converted to standard AQI: ${standardAqi}`
+          );
+          console.log(`AQI Category: ${aqiCategory.level}`);
+
+          return {
+            timestamp: data.dt * 1000, // Convert to milliseconds
+            aqi: standardAqi, // Use the converted standard AQI
+            openWeatherAqi: openWeatherAqi, // Keep original for reference
+            level: aqiCategory.level,
+            description: aqiCategory.description,
+            color: getAqiColor(standardAqi),
+            components: data.components,
+            location: { lat, lon },
+            error: false, // Explicitly mark as not an error
           };
+        } catch (error: any) {
+          lastError = error;
+          retryCount++;
+
+          // Enhanced error logging
+          console.error(
+            `❌ API REQUEST FAILED (Attempt ${retryCount}/${MAX_RETRIES}):`
+          );
+          console.error(`🚨 Error name: ${error.name}`);
+          console.error(`📝 Error message: ${error.message}`);
+
+          if (error.code) {
+            console.error(`🔢 Error code: ${error.code}`);
+          }
+
+          if (error.response) {
+            // The server responded with a status code outside of 2xx range
+            console.error(`🔴 Response status: ${error.response.status}`);
+            console.error(
+              `📄 Response headers:`,
+              JSON.stringify(error.response.headers, null, 2)
+            );
+            console.error(
+              `📑 Response data:`,
+              JSON.stringify(error.response.data, null, 2)
+            );
+          } else if (error.request) {
+            // The request was made but no response was received
+            console.error(`🟠 No response received - Network or CORS issue`);
+            console.error(
+              `📡 Request details:`,
+              error.request._currentUrl || "URL not available"
+            );
+          } else {
+            // Something happened in setting up the request
+            console.error(`🟡 Request setup error: ${error.message}`);
+          }
+
+          // Check for specific error types
+          if (error.code === "ECONNABORTED") {
+            console.error(`⏱️ Request timed out after 30000ms`);
+          } else if (error.code === "ENOTFOUND") {
+            console.error(
+              `🔍 DNS lookup failed - Check internet connection and hostname`
+            );
+          }
+
+          // Network info for debugging
+          try {
+            console.error(
+              `🌐 Network info: Running on ${process.platform}, Node ${process.version}`
+            );
+          } catch (e) {
+            console.error(
+              `🌐 Network info: Unable to determine platform details`
+            );
+          }
+
+          // Wait a bit before retrying (increasing backoff)
+          if (retryCount < MAX_RETRIES) {
+            const delay = retryCount * 1000; // Increasing delay with each retry
+            console.log(`⏳ Retrying in ${delay}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
         }
-
-        const data = response.data.list[0];
-        const openWeatherAqi = data.main.aqi;
-
-        // Convert to standard AQI
-        const standardAqi = convertToStandardAQI(
-          openWeatherAqi,
-          data.components
-        );
-        const aqiCategory = getAqiCategory(standardAqi);
-
-        console.log(
-          `OpenWeather AQI: ${openWeatherAqi}, Converted to standard AQI: ${standardAqi}`
-        );
-        console.log(`AQI Category: ${aqiCategory.level}`);
-
-        return {
-          timestamp: data.dt * 1000, // Convert to milliseconds
-          aqi: standardAqi, // Use the converted standard AQI
-          openWeatherAqi: openWeatherAqi, // Keep original for reference
-          level: aqiCategory.level,
-          description: aqiCategory.description,
-          color: getAqiColor(standardAqi),
-          components: data.components,
-          location: { lat, lon },
-          error: false, // Explicitly mark as not an error
-        };
-      } catch (axiosError: any) {
-        // Handle Axios-specific errors with detailed logging
-        console.error("Axios error details:", {
-          message: axiosError.message,
-          code: axiosError.code,
-          status: axiosError.response?.status,
-          statusText: axiosError.response?.statusText,
-          data: axiosError.response?.data,
-        });
-
-        // Create a structured error response
-        return {
-          error: true,
-          message: `OpenWeather API error: ${axiosError.message}`,
-          status: axiosError.response?.status || 503,
-          axiosError: {
-            message: axiosError.message,
-            code: axiosError.code,
-            status: axiosError.response?.status,
-            statusText: axiosError.response?.statusText,
-            data: axiosError.response?.data,
-          },
-          timestamp: Date.now(),
-          location: { lat, lon },
-          // Add default values for all required fields
-          aqi: 0,
-          openWeatherAqi: 0,
-          level: "Error",
-          description: "API connection error",
-          color: "gray",
-          components: {
-            co: 0,
-            no: 0,
-            no2: 0,
-            o3: 0,
-            so2: 0,
-            pm2_5: 0,
-            pm10: 0,
-            nh3: 0,
-          },
-        };
       }
-    } catch (error: any) {
-      // Catch any other unexpected errors
-      console.error("Unexpected error in getCurrentAirQuality:", error);
 
-      return {
-        error: true,
-        message: `Unexpected error: ${error.message || "Unknown error"}`,
-        status: 500,
-        timestamp: Date.now(),
-        location: { lat, lon },
-        // Add default values
-        aqi: 0,
-        openWeatherAqi: 0,
-        level: "Error",
-        description: "Unexpected error",
-        color: "gray",
-        components: {
-          co: 0,
-          no: 0,
-          no2: 0,
-          o3: 0,
-          so2: 0,
-          pm2_5: 0,
-          pm10: 0,
-          nh3: 0,
-        },
-      };
+      // If we got here, all retries failed
+      console.error("❌ ALL RETRY ATTEMPTS FAILED");
+      console.error(
+        "📊 Final error details:",
+        lastError?.message || "Unknown error"
+      );
+      throw lastError || new Error("All API retry attempts failed");
+    } catch (error: any) {
+      // Propagate the error to be handled by the route handler
+      console.error(
+        "❌ FATAL ERROR: Failed to fetch air quality data after multiple attempts:",
+        error.message
+      );
+
+      // Log stack trace for debugging
+      console.error("📚 Error stack trace:", error.stack);
+
+      throw error;
     }
   },
 
@@ -431,116 +427,103 @@ export const airQualityService = {
 
       if (!OPENWEATHER_API_KEY) {
         console.error("Cannot make components API request without API key");
-
-        // Return default component values instead of throwing error
-        return {
-          co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
-          no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
-          no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
-          o3: { value: 0, unit: "μg/m³", name: "Ozone" },
-          so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
-          pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
-          pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
-          nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
-          error: "API key missing",
-        };
+        throw new Error(
+          "OpenWeather API key is missing. Check your environment variables."
+        );
       }
 
-      try {
-        const response = await axios.get(`${BASE_URL}/air_pollution`, {
-          params: {
-            lat,
-            lon,
-            appid: OPENWEATHER_API_KEY,
-          },
-          timeout: 10000, // 10 second timeout
-        });
+      // Add retry logic for reliability
+      const MAX_RETRIES = 3;
+      let retryCount = 0;
+      let lastError;
 
-        // Basic validation
-        if (!response.data || !response.data.list || !response.data.list[0]) {
-          console.error("Invalid data structure returned from OpenWeather API");
+      while (retryCount < MAX_RETRIES) {
+        try {
+          console.log(
+            `Making components API request (Attempt ${
+              retryCount + 1
+            }/${MAX_RETRIES})`
+          );
 
-          // Return default values
+          const response = await axios.get(`${BASE_URL}/air_pollution`, {
+            params: {
+              lat,
+              lon,
+              appid: OPENWEATHER_API_KEY,
+            },
+            timeout: 30000, // 30 second timeout
+          });
+
+          // Basic validation
+          if (!response.data || !response.data.list || !response.data.list[0]) {
+            console.error(
+              "Invalid data structure returned from OpenWeather API"
+            );
+            throw new Error("Invalid response structure from OpenWeather API");
+          }
+
+          const components = response.data.list[0].components;
+
           return {
-            co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
-            no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
-            no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
-            o3: { value: 0, unit: "μg/m³", name: "Ozone" },
-            so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
-            pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
-            pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
-            nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
-            error: "Invalid API response",
+            co: {
+              value: components.co,
+              unit: "μg/m³",
+              name: "Carbon Monoxide",
+            },
+            no: {
+              value: components.no,
+              unit: "μg/m³",
+              name: "Nitrogen Monoxide",
+            },
+            no2: {
+              value: components.no2,
+              unit: "μg/m³",
+              name: "Nitrogen Dioxide",
+            },
+            o3: { value: components.o3, unit: "μg/m³", name: "Ozone" },
+            so2: {
+              value: components.so2,
+              unit: "μg/m³",
+              name: "Sulphur Dioxide",
+            },
+            pm2_5: {
+              value: components.pm2_5,
+              unit: "μg/m³",
+              name: "Fine Particles",
+            },
+            pm10: {
+              value: components.pm10,
+              unit: "μg/m³",
+              name: "Coarse Particles",
+            },
+            nh3: { value: components.nh3, unit: "μg/m³", name: "Ammonia" },
           };
+        } catch (error) {
+          lastError = error;
+          retryCount++;
+          console.error(
+            `Components API request failed (Attempt ${retryCount}/${MAX_RETRIES}):`,
+            error
+          );
+
+          // Wait before retrying with increasing backoff
+          if (retryCount < MAX_RETRIES) {
+            const delay = retryCount * 1000;
+            console.log(`Retrying in ${delay}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
         }
-
-        const components = response.data.list[0].components;
-
-        return {
-          co: { value: components.co, unit: "μg/m³", name: "Carbon Monoxide" },
-          no: {
-            value: components.no,
-            unit: "μg/m³",
-            name: "Nitrogen Monoxide",
-          },
-          no2: {
-            value: components.no2,
-            unit: "μg/m³",
-            name: "Nitrogen Dioxide",
-          },
-          o3: { value: components.o3, unit: "μg/m³", name: "Ozone" },
-          so2: {
-            value: components.so2,
-            unit: "μg/m³",
-            name: "Sulphur Dioxide",
-          },
-          pm2_5: {
-            value: components.pm2_5,
-            unit: "μg/m³",
-            name: "Fine Particles",
-          },
-          pm10: {
-            value: components.pm10,
-            unit: "μg/m³",
-            name: "Coarse Particles",
-          },
-          nh3: { value: components.nh3, unit: "μg/m³", name: "Ammonia" },
-        };
-      } catch (axiosError) {
-        console.error("Error fetching component data:", axiosError);
-
-        // Return default values
-        return {
-          co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
-          no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
-          no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
-          o3: { value: 0, unit: "μg/m³", name: "Ozone" },
-          so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
-          pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
-          pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
-          nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
-          error: "API request failed",
-        };
       }
+
+      // If we got here, all retries failed
+      throw lastError || new Error("All API retry attempts failed");
     } catch (error) {
       console.error("Error in getAirQualityComponents:", error);
-
-      // Return default values
-      return {
-        co: { value: 0, unit: "μg/m³", name: "Carbon Monoxide" },
-        no: { value: 0, unit: "μg/m³", name: "Nitrogen Monoxide" },
-        no2: { value: 0, unit: "μg/m³", name: "Nitrogen Dioxide" },
-        o3: { value: 0, unit: "μg/m³", name: "Ozone" },
-        so2: { value: 0, unit: "μg/m³", name: "Sulphur Dioxide" },
-        pm2_5: { value: 0, unit: "μg/m³", name: "Fine Particles" },
-        pm10: { value: 0, unit: "μg/m³", name: "Coarse Particles" },
-        nh3: { value: 0, unit: "μg/m³", name: "Ammonia" },
-        error: "Unexpected error",
-      };
+      throw error; // Propagate the error to be handled by the route handler
     }
   },
 
-  // Add the missing forecast method
+  // Add the missing forecast method with retry logic and no fallbacks
   async getAirQualityForecast(lat: string, lon: string) {
     try {
       console.log(`Fetching air quality forecast for: ${lat}, ${lon}`);
@@ -551,40 +534,88 @@ export const airQualityService = {
         );
       }
 
-      const response = await axios.get(`${BASE_URL}/air_pollution/forecast`, {
-        params: {
-          lat,
-          lon,
-          appid: OPENWEATHER_API_KEY,
-        },
-      });
+      // Add retry logic
+      const MAX_RETRIES = 3;
+      let retryCount = 0;
+      let lastError;
 
-      // Extract the next 24 hours (usually 24 data points, 1 per hour)
-      const next24Hours = response.data.list.slice(0, 24).map((item: any) => {
-        // Convert OpenWeather AQI to standard AQI for each forecast item
-        const openWeatherAqi = item.main.aqi;
-        const standardAqi = convertToStandardAQI(
-          openWeatherAqi,
-          item.components
-        );
+      while (retryCount < MAX_RETRIES) {
+        try {
+          console.log(
+            `Making forecast API request (Attempt ${
+              retryCount + 1
+            }/${MAX_RETRIES})`
+          );
 
-        return {
-          timestamp: item.dt * 1000, // Convert to milliseconds
-          airQuality: standardAqi, // Use the converted standard AQI
-          openWeatherAqi: openWeatherAqi, // Keep original for reference
-          level: getAqiCategory(standardAqi).level,
-          color: getAqiColor(standardAqi),
-          components: item.components,
-        };
-      });
+          const response = await axios.get(
+            `${BASE_URL}/air_pollution/forecast`,
+            {
+              params: {
+                lat,
+                lon,
+                appid: OPENWEATHER_API_KEY,
+              },
+              timeout: 30000, // 30 second timeout
+            }
+          );
 
-      return {
-        forecast: next24Hours,
-        location: { lat, lon },
-      };
+          if (
+            !response.data ||
+            !response.data.list ||
+            response.data.list.length === 0
+          ) {
+            throw new Error(
+              "Invalid forecast data received from OpenWeather API"
+            );
+          }
+
+          // Extract the next 24 hours (usually 24 data points, 1 per hour)
+          const next24Hours = response.data.list
+            .slice(0, 24)
+            .map((item: any) => {
+              // Convert OpenWeather AQI to standard AQI for each forecast item
+              const openWeatherAqi = item.main.aqi;
+              const standardAqi = convertToStandardAQI(
+                openWeatherAqi,
+                item.components
+              );
+
+              return {
+                timestamp: item.dt * 1000, // Convert to milliseconds
+                airQuality: standardAqi, // Use the converted standard AQI
+                openWeatherAqi: openWeatherAqi, // Keep original for reference
+                level: getAqiCategory(standardAqi).level,
+                color: getAqiColor(standardAqi),
+                components: item.components,
+              };
+            });
+
+          return {
+            forecast: next24Hours,
+            location: { lat, lon },
+          };
+        } catch (error) {
+          lastError = error;
+          retryCount++;
+          console.error(
+            `Forecast API request failed (Attempt ${retryCount}/${MAX_RETRIES}):`,
+            error
+          );
+
+          // Wait before retrying with increasing backoff
+          if (retryCount < MAX_RETRIES) {
+            const delay = retryCount * 1000;
+            console.log(`Retrying in ${delay}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+      }
+
+      // If we got here, all retries failed
+      throw lastError || new Error("All API retry attempts failed");
     } catch (error) {
       console.error("Error in getAirQualityForecast:", error);
-      throw error;
+      throw error; // Propagate the error to be handled by the route handler
     }
   },
 };
