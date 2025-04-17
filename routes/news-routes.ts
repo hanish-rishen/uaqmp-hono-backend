@@ -1,7 +1,15 @@
 import { Hono } from "hono";
 import { geminiService } from "../services/gemini-service";
 
-const app = new Hono();
+// Define the environment variables type for Cloudflare Workers
+interface Env {
+  OPENWEATHER_API_KEY?: string;
+  SERPER_API_KEY?: string;
+  GEMINI_API_KEY?: string;
+  [key: string]: unknown;
+}
+
+const app = new Hono<{ Bindings: Env }>();
 
 // Get air quality news for a location with caching
 const newsCache = new Map<string, any>();
@@ -50,7 +58,7 @@ app.get("/air-quality", async (c) => {
     }
 
     // If not in cache or expired, fetch fresh data
-    const news = await geminiService.getAirQualityNews(location);
+    const news = await geminiService.getAirQualityNews(location, c.env);
 
     // Store in cache
     newsCache.set(cacheKey, {

@@ -1,15 +1,43 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { serperService } from "./serper-service";
-import { airQualityService } from "./air-quality-service";
+import { serperService, setSerperApiKey } from "./serper-service";
+import * as airQualityServiceModule from "./air-quality-service";
 
 // Initialize Gemini API
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+let GEMINI_API_KEY: string | undefined = process.env.GEMINI_API_KEY || "";
+
+// Access the Gemini API key from Cloudflare Workers environment if available
+if (typeof GEMINI_API_KEY === "undefined" || GEMINI_API_KEY === "") {
+  try {
+    // Try to access from global scope in Cloudflare Workers
+    GEMINI_API_KEY =
+      (typeof self !== "undefined" && (self as any).GEMINI_API_KEY) ||
+      (typeof globalThis !== "undefined" && (globalThis as any).GEMINI_API_KEY);
+  } catch (e) {
+    console.error("Error accessing Gemini API key from environment:", e);
+  }
+}
 
 if (!GEMINI_API_KEY) {
   console.error("WARNING: Gemini API key is not set in environment variables!");
 }
 
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+// Initialize GenAI only if we have a key
+const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
+
+// Cache for news data to avoid repeated API calls
+const newsCache: Record<
+  string,
+  { timestamp: number; data: AirQualityNewsResponse }
+> = {};
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour cache lifetime
+
+// Export a function to update the API key at runtime
+export function setGeminiApiKey(apiKey: string) {
+  if (apiKey) {
+    GEMINI_API_KEY = apiKey;
+    console.log(`Gemini API key set manually: ${apiKey.substring(0, 5)}...`);
+  }
+}
 
 interface NewsArticle {
   title: string;
@@ -26,23 +54,68 @@ interface AirQualityNewsResponse {
 
 export const geminiService = {
   // Fetch articles and generate AI summary
-  async getAirQualityNews(location: string): Promise<AirQualityNewsResponse> {
+  async getAirQualityNews(
+    location: string,
+    env?: any
+  ): Promise<AirQualityNewsResponse> {
     try {
-      console.log(`Fetching air quality news for location: ${location}`);
+      console.log(`Fetching news for location: ${location}`);
+
+      // Check cache first
+      const cacheKey = location.toLowerCase();
+      const cachedData = newsCache[cacheKey];
+      const now = Date.now();
+
+      if (cachedData && now - cachedData.timestamp < CACHE_TTL) {
+        console.log(`Using cached news data for ${location}`);
+        return cachedData.data;
+      }
+
+      // Set API keys from Cloudflare environment if available
+      if (env) {
+        if (env.GEMINI_API_KEY) {
+          setGeminiApiKey(env.GEMINI_API_KEY);
+        }
+        if (env.SERPER_API_KEY) {
+          setSerperApiKey(env.SERPER_API_KEY);
+        }
+        if (env.OPENWEATHER_API_KEY) {
+          airQualityServiceModule.setApiKey(env.OPENWEATHER_API_KEY);
+        }
+      }
 
       // 1. Search for articles using Serper - single request
+      console.log("Searching for articles via Serper API...");
       const searchQuery = `air quality pollution ${location}`;
-      const { searchResults } = await serperService.search(searchQuery);
+      const { searchResults } = await serperService.search(
+        searchQuery,
+        env?.SERPER_API_KEY
+      );
 
-      console.log(`Found ${searchResults.length} articles`);
+      console.log(`Found ${searchResults.length} articles from Serper API`);
+
+      // If no search results, check if we have cached data that's older
+      if (searchResults.length === 0 && cachedData) {
+        console.log(
+          `No new articles found, using older cached data for ${location}`
+        );
+        return cachedData.data;
+      }
 
       // 2. Ensure we have air quality data - if not in global var, try to get it
       let airQualityData = global.lastAirQualityData;
 
       console.log(
-        "Global air quality data:",
-        airQualityData ? "Available" : "Not available"
+        "Air quality data available for summary:",
+        airQualityData ? "Yes" : "No"
       );
+
+      if (airQualityData) {
+        console.log(
+          `- AQI: ${airQualityData.aqi}, Level: ${airQualityData.level}`
+        );
+        console.log(`- PM2.5: ${airQualityData.components.pm2_5} μg/m³`);
+      }
 
       // If no data is available in global var, try to get the latest data
       if (!airQualityData) {
@@ -56,10 +129,8 @@ export const geminiService = {
           const lon = "80.17812278961485";
 
           // Use the existing airQualityService to get real-time data
-          const currentData = await airQualityService.getCurrentAirQuality(
-            lat,
-            lon
-          );
+          const currentData =
+            await airQualityServiceModule.getCurrentAirQuality(lat, lon);
 
           airQualityData = {
             aqi: currentData.aqi,
@@ -118,12 +189,34 @@ export const geminiService = {
         date: result.date || "Recent",
       }));
 
-      return {
+      const responseData = {
         articles,
         aiSummary,
       };
+
+      // Update cache
+      newsCache[cacheKey] = {
+        timestamp: now,
+        data: responseData,
+      };
+
+      return responseData;
     } catch (error) {
       console.error("Error in getAirQualityNews:", error);
+
+      // Check if we have cached data to fall back to
+      const cacheKey = location.toLowerCase();
+      const cachedData = newsCache[cacheKey];
+
+      if (cachedData) {
+        console.log(`API error, falling back to cached data for ${location}`);
+        return cachedData.data;
+      }
+
+      // If no cached data, use mock results
+      console.log(
+        `No cached data available, using mock results for ${location}`
+      );
       return getMockResults(location);
     }
   },
@@ -136,6 +229,12 @@ async function generateAirQualitySummary(
   searchResults: any[]
 ): Promise<string> {
   try {
+    // Check if Gemini API is available
+    if (!genAI) {
+      console.error("Gemini API not initialized - missing API key");
+      return createHardcodedSummary(location, airQualityData);
+    }
+
     // Create model with correct parameters
     const model = genAI.getGenerativeModel({
       model: "gemini-1.5-flash", // Using correct model
