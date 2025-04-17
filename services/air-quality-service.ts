@@ -232,32 +232,76 @@ export const airQualityService = {
       while (retryCount < MAX_RETRIES) {
         try {
           // Enhanced debugging for API request details
-          const requestUrl = `${BASE_URL}/air_pollution?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY.substring(
+          const fullRequestUrl = `${BASE_URL}/air_pollution?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY}`;
+          const maskedUrl = `${BASE_URL}/air_pollution?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY.substring(
             0,
             3
           )}...`;
 
           console.log(
+            `⚠️ OPENWEATHER API KEY LENGTH: ${OPENWEATHER_API_KEY.length}`
+          );
+          console.log(
+            `⚠️ FIRST 5 CHARS OF API KEY: ${OPENWEATHER_API_KEY.substring(
+              0,
+              5
+            )}`
+          );
+          console.log(
             `🔄 API REQUEST ATTEMPT ${retryCount + 1}/${MAX_RETRIES}`
           );
-          console.log(`📡 Full request URL: ${requestUrl}`);
+          console.log(`📡 Masked URL: ${maskedUrl}`);
           console.log(`🕒 Timestamp: ${new Date().toISOString()}`);
-          console.log(`⏱️ Timeout setting: 30000ms`);
 
-          // Log DNS resolution to check for connectivity issues
-          console.log(`🔍 Attempting to resolve api.openweathermap.org...`);
+          // Test direct fetch first for debugging
+          try {
+            console.log(`🔍 ATTEMPTING DIRECT BROWSER FETCH TEST...`);
+            const testFetch = await fetch(fullRequestUrl);
+            console.log(
+              `✅ DIRECT FETCH STATUS: ${testFetch.status} ${testFetch.statusText}`
+            );
+            const testJson = await testFetch.text();
+            console.log(
+              `📄 DIRECT FETCH RESPONSE: ${testJson.substring(0, 200)}...`
+            );
+          } catch (error: unknown) {
+            // Fixed: Added proper type annotation for the error
+            const directFetchError = error as Error;
+            console.error(
+              `❌ DIRECT FETCH FAILED: ${directFetchError.message}`
+            );
+          }
 
-          // Start timing the request
+          // Start timing the actual axios request
           const startTime = Date.now();
+          console.log(`⏱️ Starting axios request with 30s timeout...`);
 
-          const response = await axios.get(`${BASE_URL}/air_pollution`, {
+          // Use axios with detailed config
+          const axiosConfig = {
+            method: "get",
+            url: `${BASE_URL}/air_pollution`,
             params: {
               lat,
               lon,
               appid: OPENWEATHER_API_KEY,
             },
-            timeout: 30000, // 30 second timeout for better chance of success
-          });
+            timeout: 30000,
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+              "User-Agent": "UAQMP/1.0",
+            },
+          };
+          console.log(
+            `📡 Request Config:`,
+            JSON.stringify(
+              axiosConfig,
+              (key, value) => (key === "appid" ? "***masked***" : value),
+              2
+            )
+          );
+
+          const response = await axios(axiosConfig);
 
           // Log request duration
           const duration = Date.now() - startTime;
@@ -266,10 +310,21 @@ export const airQualityService = {
           console.log(`✅ API RESPONSE RECEIVED:`);
           console.log(`📊 Status: ${response.status} ${response.statusText}`);
           console.log(`📦 Headers:`, JSON.stringify(response.headers, null, 2));
-          console.log(
-            `📋 Response data structure:`,
-            Object.keys(response.data || {})
-          );
+
+          // Safe way to log response structure
+          try {
+            console.log(
+              `📋 Full response data:`,
+              JSON.stringify(response.data).substring(0, 500)
+            );
+          } catch (error: unknown) {
+            // Fixed: Added proper type annotation for the error
+            const jsonError = error as Error;
+            console.log(
+              `📋 Could not stringify response data:`,
+              jsonError.message
+            );
+          }
 
           if (response.data && response.data.list) {
             console.log(`📈 List items count: ${response.data.list.length}`);
@@ -343,6 +398,7 @@ export const airQualityService = {
           );
           console.error(`🚨 Error name: ${error.name}`);
           console.error(`📝 Error message: ${error.message}`);
+          console.error(`🔍 ERROR STACK: ${error.stack}`);
 
           if (error.code) {
             console.error(`🔢 Error code: ${error.code}`);
@@ -352,43 +408,68 @@ export const airQualityService = {
             // The server responded with a status code outside of 2xx range
             console.error(`🔴 Response status: ${error.response.status}`);
             console.error(
-              `📄 Response headers:`,
-              JSON.stringify(error.response.headers, null, 2)
+              `🔴 Response statusText: ${error.response.statusText}`
             );
             console.error(
-              `📑 Response data:`,
-              JSON.stringify(error.response.data, null, 2)
+              `📄 Response headers:`,
+              JSON.stringify(error.response.headers || {}, null, 2)
             );
+
+            // Safely log response data
+            try {
+              const responseDataStr = JSON.stringify(error.response.data);
+              console.error(`📑 Response data:`, responseDataStr);
+            } catch (jsonError) {
+              console.error(
+                `📑 Response data: [Could not stringify]`,
+                error.response.data
+              );
+            }
           } else if (error.request) {
             // The request was made but no response was received
             console.error(`🟠 No response received - Network or CORS issue`);
-            console.error(
-              `📡 Request details:`,
-              error.request._currentUrl || "URL not available"
-            );
+            console.error(`🟠 Request was made but no response`);
+
+            // Try to log request details
+            try {
+              console.error(
+                `📡 Request URL:`,
+                error.request.path || error.config?.url || "URL not available"
+              );
+            } catch (error: unknown) {
+              // Fixed: Added proper type annotation for the error
+              const e = error as Error;
+              console.error(`📡 Could not access request details:`, e.message);
+            }
           } else {
             // Something happened in setting up the request
             console.error(`🟡 Request setup error: ${error.message}`);
           }
 
-          // Check for specific error types
-          if (error.code === "ECONNABORTED") {
-            console.error(`⏱️ Request timed out after 30000ms`);
-          } else if (error.code === "ENOTFOUND") {
-            console.error(
-              `🔍 DNS lookup failed - Check internet connection and hostname`
-            );
-          }
-
-          // Network info for debugging
+          // Add network utilities for diagnosis
           try {
-            console.error(
-              `🌐 Network info: Running on ${process.platform}, Node ${process.version}`
+            const dns = require("dns");
+            // Fixed: Added proper types for the callback parameters
+            dns.lookup(
+              "api.openweathermap.org",
+              (
+                err: NodeJS.ErrnoException | null,
+                address: string,
+                family: number
+              ) => {
+                if (err) {
+                  console.error(`❌ DNS lookup failed:`, err);
+                } else {
+                  console.log(
+                    `✅ DNS lookup success: api.openweathermap.org -> ${address} (IPv${family})`
+                  );
+                }
+              }
             );
-          } catch (e) {
-            console.error(
-              `🌐 Network info: Unable to determine platform details`
-            );
+          } catch (error: unknown) {
+            // Fixed: Added proper type annotation for the error
+            const dnsError = error as Error;
+            console.error(`❌ DNS utility not available:`, dnsError.message);
           }
 
           // Wait a bit before retrying (increasing backoff)
