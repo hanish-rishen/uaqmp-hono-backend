@@ -232,7 +232,7 @@ async function generateAirQualitySummary(
     // Check if Gemini API is available
     if (!genAI) {
       console.error("Gemini API not initialized - missing API key");
-      return createHardcodedSummary(location, airQualityData);
+      throw new Error("Gemini API key not available");
     }
 
     // Create model with correct parameters
@@ -258,15 +258,23 @@ async function generateAirQualitySummary(
     `;
 
     // Create context from search results
-    const articleContext = searchResults
-      .map((result) => `Article: ${result.title}\nSummary: ${result.snippet}`)
-      .join("\n\n");
+    const articleContext =
+      searchResults && searchResults.length > 0
+        ? searchResults
+            .map(
+              (result) => `Article: ${result.title}\nSummary: ${result.snippet}`
+            )
+            .join("\n\n")
+        : "No recent news articles available for this location.";
 
     console.log("Creating AI summary with OpenWeather data available");
     console.log(
       `Air quality in ${location}: AQI ${airQualityData.aqi}, Level: ${airQualityData.level}`
     );
-    console.log("Number of articles for summary:", searchResults.length);
+    console.log(
+      "Number of articles for summary:",
+      searchResults ? searchResults.length : 0
+    );
 
     // Create a more direct prompt that forces the AI to use the OpenWeather data
     const prompt = `
@@ -274,63 +282,180 @@ async function generateAirQualitySummary(
       
       Your summary MUST be structured in exactly TWO paragraphs:
       
-      PARAGRAPH 1: Analyze the OpenWeather data provided. You MUST mention the specific AQI value of ${airQualityData.aqi} 
-      and the air quality level "${airQualityData.level}". Explain what this means for residents and which pollutants 
-      (like PM2.5 at ${airQualityData.components.pm2_5} μg/m³) are most significant.
+      PARAGRAPH 1: Analyze the OpenWeather data provided. You MUST mention the specific AQI value of ${
+        airQualityData.aqi
+      } 
+      and the air quality level "${
+        airQualityData.level
+      }". Explain what this means for residents and which pollutants 
+      (like PM2.5 at ${
+        airQualityData.components.pm2_5
+      } μg/m³) are most significant.
       
-      PARAGRAPH 2: Summarize key points from the news articles, focusing on local pollution sources, 
-      health impacts, and improvement initiatives in ${location} or nearby areas.
+      PARAGRAPH 2: ${
+        searchResults && searchResults.length > 0
+          ? "Summarize key points from the news articles, focusing on local pollution sources, health impacts, and improvement initiatives in " +
+            location +
+            " or nearby areas."
+          : "Discuss general implications of the current air quality levels for residents, including any health precautions that should be taken based on the pollutant levels."
+      }
       
       Be factual and concise. NEVER say data is unavailable - work with the data provided.
       
       OpenWeather Data:
       ${openWeatherContext}
       
-      News Information:
+      ${
+        searchResults && searchResults.length > 0
+          ? "News Information:"
+          : "Note: Use general knowledge about air quality impacts since specific news articles are not available."
+      }
       ${articleContext}
     `;
 
-    try {
-      console.log("Sending request to Gemini API");
-      // Request with correct format
-      const result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 400,
-        },
-      });
+    // Add retry logic for Gemini API with exponential backoff
+    let attempts = 0;
+    const maxAttempts = 3; // Increase to 3 attempts
+    let lastError: any = null;
+    const baseDelay = 1000; // 1 second
 
-      const summaryText = result.response.text().trim();
-      console.log(
-        "Received summary from Gemini API:",
-        summaryText.substring(0, 100) + "..."
-      );
-      return summaryText;
-    } catch (apiError) {
-      console.error("API error during content generation:", apiError);
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        console.log(`Gemini API attempt ${attempts}/${maxAttempts}`);
 
-      // Fall back to a hardcoded summary if all else fails
-      return createHardcodedSummary(location, airQualityData);
+        // Request with correct format
+        const result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 800,
+          },
+        });
+
+        const summaryText = result.response.text().trim();
+
+        // Validate we got a real response, not just an error message
+        if (summaryText.length < 50) {
+          console.warn(
+            "Gemini response too short, may be an error:",
+            summaryText
+          );
+          throw new Error("Response too short, likely an error");
+        }
+
+        console.log(
+          "✓ Received valid summary from Gemini API:",
+          summaryText.substring(0, 100) + "..."
+        );
+
+        return summaryText;
+      } catch (attemptError) {
+        console.error(`Gemini API attempt ${attempts} failed:`, attemptError);
+        lastError = attemptError;
+
+        // Wait before retrying with exponential backoff
+        if (attempts < maxAttempts) {
+          const delay = baseDelay * Math.pow(2, attempts - 1); // Exponential backoff
+          console.log(`Waiting ${delay}ms before next attempt...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
     }
+
+    // If we get here, all attempts failed
+    console.error("All Gemini API attempts failed:", lastError);
+    throw new Error(
+      `Failed to generate AI summary after ${maxAttempts} attempts: ${
+        lastError?.message || "Unknown error"
+      }`
+    );
   } catch (error) {
     console.error("Error generating AI summary:", error);
-    return createHardcodedSummary(
-      location,
-      airQualityData || {
-        aqi: 50,
-        level: "Moderate",
-        components: { pm2_5: 25, pm10: 30, o3: 40, no2: 10, so2: 5, co: 300 },
-      }
-    );
+
+    // Generate a dynamic fallback based on actual data instead of hardcoded text
+    return generateDataBasedSummary(location, airQualityData);
   }
 }
 
-// Create a hardcoded summary if API calls fail
-function createHardcodedSummary(location: string, data: any): string {
-  return `The current Air Quality Index (AQI) in ${location} is ${data.aqi}, indicating ${data.level} conditions. PM2.5 levels of ${data.components.pm2_5} μg/m³ and PM10 levels of ${data.components.pm10} μg/m³ are the primary pollutants, which can cause respiratory irritation for sensitive groups. At this level, individuals with respiratory or heart conditions, the elderly, and children should limit prolonged outdoor exertion.
+// Generate a data-driven summary when API fails (not hardcoded)
+function generateDataBasedSummary(location: string, data: any): string {
+  // Determine air quality severity
+  let severity: string;
+  let recommendations: string;
 
-Recent reports indicate that ${location}'s air quality is influenced by local traffic patterns, industrial activities, and regional weather conditions. Local authorities have implemented various measures including vehicle emission controls, industrial regulations, and urban greening initiatives to address pollution concerns. Air quality monitoring stations continue to track pollution levels, with data suggesting seasonal variations that residents should be aware of when planning outdoor activities.`;
+  if (data.aqi <= 50) {
+    severity = "good and poses little to no health risk";
+    recommendations =
+      "All individuals can continue outdoor activities normally.";
+  } else if (data.aqi <= 100) {
+    severity = "acceptable, though some pollutants may be of concern";
+    recommendations =
+      "Unusually sensitive individuals should consider limiting prolonged outdoor exertion.";
+  } else if (data.aqi <= 150) {
+    severity = "potentially harmful for sensitive groups";
+    recommendations =
+      "People with respiratory or heart conditions, the elderly, and children should limit prolonged outdoor activities.";
+  } else if (data.aqi <= 200) {
+    severity = "unhealthy and may cause health effects";
+    recommendations =
+      "Everyone should reduce prolonged or heavy exertion outdoors. Sensitive groups should avoid outdoor activities.";
+  } else if (data.aqi <= 300) {
+    severity = "very unhealthy with increased risk of health effects";
+    recommendations =
+      "Everyone should avoid outdoor activities, and sensitive groups should remain indoors with air purifiers if possible.";
+  } else {
+    severity = "hazardous with serious health effects possible";
+    recommendations =
+      "Everyone should avoid all outdoor activities and remain indoors with filtered air.";
+  }
+
+  // Get significant pollutants
+  // Cast the components to Record<string, number> to ensure type safety
+  const components = data.components as Record<string, number>;
+  const pollutants = Object.entries(components).sort((a, b) => b[1] - a[1]);
+
+  const topPollutants = pollutants
+    .slice(0, 2)
+    .map((p) => {
+      const key = p[0];
+      const value = p[1];
+      let name = "";
+
+      switch (key) {
+        case "pm2_5":
+          name = "PM2.5 (fine particles)";
+          break;
+        case "pm10":
+          name = "PM10 (coarse particles)";
+          break;
+        case "o3":
+          name = "Ozone";
+          break;
+        case "no2":
+          name = "Nitrogen Dioxide";
+          break;
+        case "so2":
+          name = "Sulfur Dioxide";
+          break;
+        case "co":
+          name = "Carbon Monoxide";
+          break;
+        default:
+          name = key;
+      }
+
+      return `${name} (${value} μg/m³)`;
+    })
+    .join(" and ");
+
+  // Create paragraph 1 - current conditions
+  const paragraph1 = `The current Air Quality Index (AQI) in ${location} is ${data.aqi}, indicating ${data.level} conditions. This means the air quality is ${severity}. The most significant pollutants are ${topPollutants}, which can affect respiratory health and comfort.`;
+
+  // Create paragraph 2 - recommendations and context
+  const paragraph2 = `${recommendations} Common sources of these pollutants include vehicle emissions, industrial activities, and weather conditions affecting pollution dispersion. Local air quality typically varies throughout the day, with potential improvements during periods of increased wind or precipitation. Residents are advised to monitor local air quality forecasts and plan outdoor activities accordingly.`;
+
+  return `${paragraph1}\n\n${paragraph2}`;
 }
 
 // Create mock results when APIs fail
