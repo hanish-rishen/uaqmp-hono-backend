@@ -7,7 +7,7 @@ dotenv.config();
 
 // Define the environment variables type for Cloudflare Workers
 interface Env {
-  OPENROUTER_API_KEY?: string;
+  OPENROUTER_KEY?: string; // Changed from OPENROUTER_API_KEY to OPENROUTER_KEY
   [key: string]: unknown;
 }
 
@@ -84,7 +84,7 @@ app.post("/recommendations", async (c) => {
     }
 
     // Get API key from Cloudflare environment
-    const apiKey = c.env.OPENROUTER_API_KEY;
+    const apiKey = c.env.OPENROUTER_KEY; // Changed from OPENROUTER_API_KEY to OPENROUTER_KEY
 
     // Debug the API key (but don't show the full key in logs)
     console.log(`API key exists: ${!!apiKey}`);
@@ -109,7 +109,7 @@ app.post("/recommendations", async (c) => {
     try {
       // Create request body according to documentation
       const requestBody = {
-        model: "deepseek/deepseek-chat-v3-0324", // Changed to use requested deepseek model
+        model: "deepseek/deepseek-chat-v3-0324", // Using deepseek model
         messages: [
           {
             role: "user",
@@ -118,6 +118,14 @@ app.post("/recommendations", async (c) => {
         ],
       };
 
+      // Based on insights from the article about OpenRouter auth issues
+      console.log(
+        "Sending fetch request to OpenRouter API with Bearer token authentication"
+      );
+
+      // Make sure we're formatting the Authorization header exactly as expected
+      // The article mentions that OpenRouter expects OPENROUTER_API_KEY specifically
+      // and is sensitive to authorization format
       // Using fetch with headers exactly as in documentation
       console.log("Sending fetch request to OpenRouter API...");
 
