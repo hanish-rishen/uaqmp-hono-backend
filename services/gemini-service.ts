@@ -5,20 +5,19 @@ import * as airQualityServiceModule from "./air-quality-service";
 // Initialize Gemini API
 let GEMINI_API_KEY: string | undefined = process.env.GEMINI_API_KEY || "";
 
-// Access the Gemini API key from Cloudflare Workers environment if available
-if (typeof GEMINI_API_KEY === "undefined" || GEMINI_API_KEY === "") {
-  try {
-    // Try to access from global scope in Cloudflare Workers
-    GEMINI_API_KEY =
-      (typeof self !== "undefined" && (self as any).GEMINI_API_KEY) ||
-      (typeof globalThis !== "undefined" && (globalThis as any).GEMINI_API_KEY);
-  } catch (e) {
-    console.error("Error accessing Gemini API key from environment:", e);
-  }
-}
+// Export a function to update the API key at runtime
+export function setGeminiApiKey(apiKey: string) {
+  if (apiKey) {
+    GEMINI_API_KEY = apiKey;
+    console.log(`Gemini API key set manually: ${apiKey.substring(0, 5)}...`);
 
-if (!GEMINI_API_KEY) {
-  console.error("WARNING: Gemini API key is not set in environment variables!");
+    // Re-initialize genAI with the new key
+    if (GEMINI_API_KEY) {
+      // @ts-ignore - Update the module variable
+      genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+      console.log("✓ Gemini API client re-initialized with new key");
+    }
+  }
 }
 
 // Initialize GenAI only if we have a key
@@ -30,14 +29,6 @@ const newsCache: Record<
   { timestamp: number; data: AirQualityNewsResponse }
 > = {};
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour cache lifetime
-
-// Export a function to update the API key at runtime
-export function setGeminiApiKey(apiKey: string) {
-  if (apiKey) {
-    GEMINI_API_KEY = apiKey;
-    console.log(`Gemini API key set manually: ${apiKey.substring(0, 5)}...`);
-  }
-}
 
 interface NewsArticle {
   title: string;
@@ -61,6 +52,14 @@ export const geminiService = {
     try {
       console.log(`Fetching news for location: ${location}`);
 
+      // Debug the environment being passed
+      if (env) {
+        console.log(`Environment passed to gemini-service:`, Object.keys(env));
+        console.log(`GEMINI_API_KEY available in env: ${!!env.GEMINI_API_KEY}`);
+      } else {
+        console.warn("No environment object was passed to getAirQualityNews");
+      }
+
       // Check cache first
       const cacheKey = location.toLowerCase();
       const cachedData = newsCache[cacheKey];
@@ -74,14 +73,27 @@ export const geminiService = {
       // Set API keys from Cloudflare environment if available
       if (env) {
         if (env.GEMINI_API_KEY) {
+          console.log(`Setting Gemini API key from Cloudflare environment`);
           setGeminiApiKey(env.GEMINI_API_KEY);
         }
         if (env.SERPER_API_KEY) {
+          console.log(`Setting Serper API key from Cloudflare environment`);
           setSerperApiKey(env.SERPER_API_KEY);
         }
         if (env.OPENWEATHER_API_KEY) {
+          console.log(
+            `Setting OpenWeather API key from Cloudflare environment`
+          );
           airQualityServiceModule.setApiKey(env.OPENWEATHER_API_KEY);
         }
+      }
+
+      // Verify Gemini API is initialized after setting keys
+      if (!genAI) {
+        console.error("Gemini API not initialized after environment setup!");
+        throw new Error(
+          "Gemini API client could not be initialized with provided API key"
+        );
       }
 
       // 1. Search for articles using Serper - single request
