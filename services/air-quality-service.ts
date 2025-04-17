@@ -253,22 +253,50 @@ export const airQualityService = {
           console.log(`📡 Masked URL: ${maskedUrl}`);
           console.log(`🕒 Timestamp: ${new Date().toISOString()}`);
 
-          // Test direct fetch first for debugging
+          // Use a simpler and more compatible API test approach for Cloudflare Workers
           try {
-            console.log(`🔍 ATTEMPTING DIRECT BROWSER FETCH TEST...`);
-            const testFetch = await fetch(fullRequestUrl);
+            console.log(`🔍 ATTEMPTING DIRECT API TEST...`);
+            // Use a simplified axios call that's more compatible with serverless environments
+            const testResponse = await axios({
+              method: "get",
+              url: `${BASE_URL}/air_pollution`,
+              params: {
+                lat,
+                lon,
+                appid: OPENWEATHER_API_KEY,
+              },
+              timeout: 8000, // Shorter timeout for test - reduced for Cloudflare's limits
+              headers: {
+                Accept: "application/json",
+                "User-Agent": "UAQMP/1.0 (Cloudflare Worker)",
+              },
+              decompress: true, // Handle gzip responses automatically
+              validateStatus: null, // Don't throw on any status code
+            });
+
             console.log(
-              `✅ DIRECT FETCH STATUS: ${testFetch.status} ${testFetch.statusText}`
+              `✅ DIRECT API TEST STATUS: ${testResponse.status} ${
+                testResponse.statusText || ""
+              }`
             );
-            const testJson = await testFetch.text();
-            console.log(
-              `📄 DIRECT FETCH RESPONSE: ${testJson.substring(0, 200)}...`
-            );
+
+            // Safe stringification of response
+            try {
+              const responseStr = JSON.stringify(testResponse.data).substring(
+                0,
+                200
+              );
+              console.log(`📄 DIRECT API TEST RESPONSE: ${responseStr}...`);
+            } catch (error: unknown) {
+              const jsonError = error as Error;
+              console.log(
+                `📄 Could not stringify test response: ${jsonError.message}`
+              );
+            }
           } catch (error: unknown) {
-            // Fixed: Added proper type annotation for the error
-            const directFetchError = error as Error;
+            const directApiError = error as Error;
             console.error(
-              `❌ DIRECT FETCH FAILED: ${directFetchError.message}`
+              `❌ DIRECT API TEST FAILED: ${directApiError.message}`
             );
           }
 
@@ -276,7 +304,7 @@ export const airQualityService = {
           const startTime = Date.now();
           console.log(`⏱️ Starting axios request with 30s timeout...`);
 
-          // Use axios with detailed config
+          // Simplified axios config suitable for Cloudflare Workers environment
           const axiosConfig = {
             method: "get",
             url: `${BASE_URL}/air_pollution`,
@@ -285,12 +313,16 @@ export const airQualityService = {
               lon,
               appid: OPENWEATHER_API_KEY,
             },
-            timeout: 30000,
+            timeout: 25000, // Reduce from 30s for Cloudflare's limits
             headers: {
               Accept: "application/json",
               "Content-Type": "application/json",
-              "User-Agent": "UAQMP/1.0",
+              "User-Agent": "UAQMP/1.0 (Cloudflare Worker)",
+              "Cache-Control": "no-cache",
             },
+            // Remove the Node.js specific https agent options
+            maxRedirects: 5,
+            decompress: true,
           };
           console.log(
             `📡 Request Config:`,
@@ -301,29 +333,91 @@ export const airQualityService = {
             )
           );
 
-          const response = await axios(axiosConfig);
+          // Define response variable in the outer scope so it's accessible outside the try-catch
+          let response;
 
-          // Log request duration
-          const duration = Date.now() - startTime;
-          console.log(`⏱️ Request completed in ${duration}ms`);
-
-          console.log(`✅ API RESPONSE RECEIVED:`);
-          console.log(`📊 Status: ${response.status} ${response.statusText}`);
-          console.log(`📦 Headers:`, JSON.stringify(response.headers, null, 2));
-
-          // Safe way to log response structure
+          // Use try-catch for the main request with more specific error handling
           try {
+            response = await axios(axiosConfig);
+
+            // Log request duration
+            const duration = Date.now() - startTime;
+            console.log(`⏱️ Request completed in ${duration}ms`);
+            console.log(`✅ API RESPONSE RECEIVED:`);
+            console.log(`📊 Status: ${response.status} ${response.statusText}`);
             console.log(
-              `📋 Full response data:`,
-              JSON.stringify(response.data).substring(0, 500)
+              `📦 Headers:`,
+              JSON.stringify(response.headers, null, 2)
             );
-          } catch (error: unknown) {
-            // Fixed: Added proper type annotation for the error
-            const jsonError = error as Error;
-            console.log(
-              `📋 Could not stringify response data:`,
-              jsonError.message
+
+            // Safe way to log response structure
+            try {
+              console.log(
+                `📋 Full response data:`,
+                JSON.stringify(response.data).substring(0, 500)
+              );
+            } catch (error: unknown) {
+              // Fixed: Added proper type annotation for the error
+              const jsonError = error as Error;
+              console.log(
+                `📋 Could not stringify response data:`,
+                jsonError.message
+              );
+            }
+          } catch (axiosError: any) {
+            // Handle this specific axios error separately with better diagnostics
+            console.error(`⚠️ Axios request failed with error:`, {
+              message: axiosError.message,
+              code: axiosError.code || "UNKNOWN",
+              name: axiosError.name,
+              config: axiosError.config
+                ? {
+                    url: axiosError.config.url,
+                    method: axiosError.config.method,
+                    timeout: axiosError.config.timeout,
+                  }
+                : "No config available",
+              response: axiosError.response
+                ? {
+                    status: axiosError.response.status,
+                    statusText: axiosError.response.statusText,
+                    headers: axiosError.response.headers || {},
+                    data:
+                      typeof axiosError.response.data === "string"
+                        ? axiosError.response.data.substring(0, 200)
+                        : JSON.stringify(
+                            axiosError.response.data || {}
+                          ).substring(0, 200),
+                  }
+                : "No response available",
+            });
+
+            // Re-throw to be caught by the outer try-catch
+            throw axiosError;
+          }
+
+          // Now check if we have a valid response object
+          if (!response) {
+            throw new Error("No response received from OpenWeather API");
+          }
+
+          // Add additional validation for response structure
+          if (!response.data) {
+            throw new Error("Empty response from OpenWeather API");
+          }
+
+          if (!response.data.list) {
+            console.error(
+              "API response missing 'list' property:",
+              JSON.stringify(response.data)
             );
+            throw new Error(
+              "Invalid API response structure: missing 'list' property"
+            );
+          }
+
+          if (response.data.list.length === 0) {
+            throw new Error("OpenWeather API returned empty list");
           }
 
           if (response.data && response.data.list) {
