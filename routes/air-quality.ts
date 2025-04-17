@@ -1,12 +1,18 @@
 import { Hono } from "hono";
 import axios from "axios";
-import { airQualityService } from "../services/air-quality-service";
+import * as airQualityServiceModule from "../services/air-quality-service";
 
-// Import constants from air-quality-service.ts
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
+// Import the constants from the service
 const BASE_URL = "https://api.openweathermap.org/data/2.5";
+let OPENWEATHER_API_KEY: string | undefined;
 
-const app = new Hono();
+// Define the environment variables type for Cloudflare Workers
+interface Env {
+  OPENWEATHER_API_KEY?: string;
+  [key: string]: unknown;
+}
+
+const app = new Hono<{ Bindings: Env }>();
 
 // Get current air quality data
 app.get("/current", async (c) => {
@@ -18,7 +24,25 @@ app.get("/current", async (c) => {
       `API request received for current air quality at coordinates: ${lat}, ${lon}`
     );
 
-    const data = await airQualityService.getCurrentAirQuality(lat, lon);
+    // Get API key from the context environment (provided by Cloudflare Workers)
+    const apiKey = c.env.OPENWEATHER_API_KEY;
+
+    // Update the global variable for other endpoints to use
+    if (apiKey) {
+      OPENWEATHER_API_KEY = apiKey;
+      console.log(`Found API key in environment: ${apiKey.substring(0, 5)}...`);
+      // Set it in the service
+      airQualityServiceModule.setApiKey(apiKey);
+    } else {
+      console.warn("No API key found in Cloudflare Worker environment!");
+    }
+
+    // Pass the API key to the service method
+    const data = await airQualityServiceModule.getCurrentAirQuality(
+      lat,
+      lon,
+      apiKey
+    );
 
     console.log(
       `Returning air quality data: AQI=${data.aqi}, Level=${data.level}`
@@ -47,10 +71,16 @@ app.get("/components", async (c) => {
   try {
     const lat = c.req.query("lat") || "37.7749";
     const lon = c.req.query("lon") || "-122.4194";
+    const apiKey = c.env.OPENWEATHER_API_KEY;
+
     console.log(
       `Fetching air quality components for coordinates: ${lat}, ${lon}`
     );
-    const data = await airQualityService.getAirQualityComponents(lat, lon);
+    const data = await airQualityServiceModule.getAirQualityComponents(
+      lat,
+      lon,
+      apiKey
+    );
     return c.json(data);
   } catch (error) {
     console.error("Error fetching air quality components:", error);
@@ -63,10 +93,16 @@ app.get("/forecast", async (c) => {
   try {
     const lat = c.req.query("lat") || "37.7749";
     const lon = c.req.query("lon") || "-122.4194";
+    const apiKey = c.env.OPENWEATHER_API_KEY;
+
     console.log(
       `Fetching air quality forecast for coordinates: ${lat}, ${lon}`
     );
-    const data = await airQualityService.getAirQualityForecast(lat, lon);
+    const data = await airQualityServiceModule.getAirQualityForecast(
+      lat,
+      lon,
+      apiKey
+    );
     return c.json(data);
   } catch (error) {
     console.error("Error fetching forecast data:", error);
@@ -110,6 +146,11 @@ app.get("/debug-aqi", async (c) => {
   try {
     const lat = c.req.query("lat") || "37.7749";
     const lon = c.req.query("lon") || "-122.4194";
+    // Get API key from the context
+    const apiKey = c.env.OPENWEATHER_API_KEY;
+    if (apiKey) {
+      OPENWEATHER_API_KEY = apiKey;
+    }
 
     console.log(`DEBUG: Fetching air quality for coordinates: ${lat}, ${lon}`);
 
