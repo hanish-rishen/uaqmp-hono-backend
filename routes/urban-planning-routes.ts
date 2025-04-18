@@ -94,12 +94,21 @@ app.post("/recommendations", async (c) => {
 
     // Enhanced debugging for API key
     console.log(`API key exists in environment: ${!!apiKey}`);
+
+    // MORE DETAILED DEBUGGING FOR API KEY
     if (apiKey) {
+      // Log key details without exposing the full key
       console.log(`API key length: ${apiKey.length}`);
       console.log(`API key first 5 chars: ${apiKey.substring(0, 5)}...`);
-      console.log(`Using API key from Cloudflare environment variables`);
 
-      // Debug the actual API key format more extensively - without revealing the full key
+      // Log entire key with asterisks to see overall structure
+      const maskedKey =
+        apiKey.substring(0, 5) +
+        "".padStart(apiKey.length - 10, "*") +
+        apiKey.substring(apiKey.length - 5);
+      console.log(`Masked API key: ${maskedKey}`);
+
+      // Check key format more extensively
       console.log(
         `API key format check: ${
           apiKey.startsWith("sk-or-") ? "Valid prefix" : "Invalid prefix"
@@ -107,6 +116,37 @@ app.post("/recommendations", async (c) => {
       );
       console.log(`API key contains spaces: ${apiKey.includes(" ")}`);
       console.log(`API key contains newlines: ${apiKey.includes("\n")}`);
+      console.log(
+        `API key contains carriage returns: ${apiKey.includes("\r")}`
+      );
+      console.log(`API key contains tabs: ${apiKey.includes("\t")}`);
+      console.log(
+        `API key contains other whitespace: ${
+          /\s/.test(apiKey) &&
+          !apiKey.includes(" ") &&
+          !apiKey.includes("\n") &&
+          !apiKey.includes("\r") &&
+          !apiKey.includes("\t")
+        }`
+      );
+
+      // Check if key has any unusual encodings or characters
+      console.log(
+        `API key character code analysis (first 5 chars): ${Array.from(
+          apiKey.substring(0, 5)
+        )
+          .map((c) => c.charCodeAt(0))
+          .join(", ")}`
+      );
+      console.log(
+        `API key character code analysis (last 5 chars): ${Array.from(
+          apiKey.substring(apiKey.length - 5)
+        )
+          .map((c) => c.charCodeAt(0))
+          .join(", ")}`
+      );
+
+      console.log(`Using API key from Cloudflare environment variables`);
     } else {
       console.error(
         "⚠️ CRITICAL: OPENROUTER_API_KEY is not set in environment"
@@ -133,24 +173,41 @@ app.post("/recommendations", async (c) => {
         console.log(
           "📡 Making request to OpenRouter API with model: deepseek/deepseek-chat-v3-0324"
         );
+
+        // Create auth header with different formats to test
+        const cleanApiKey = apiKey.trim();
+        const authHeader1 = `Bearer ${cleanApiKey}`;
+        const authHeader2 = `Bearer ${cleanApiKey.replace(/\s+/g, "")}`;
+
+        console.log(`📝 Auth header option 1 length: ${authHeader1.length}`);
         console.log(
-          `📝 Request Headers: Authorization (Bearer token), Content-Type, HTTP-Referer, X-Title`
+          `📝 Auth header option 1 starts with: Bearer ${cleanApiKey.substring(
+            0,
+            5
+          )}...`
+        );
+        console.log(`📝 Auth header option 2 length: ${authHeader2.length}`);
+
+        // Try without 'Bearer ' prefix as a test
+        const authHeader3 = cleanApiKey;
+        console.log(
+          `📝 Testing auth header without Bearer prefix (length: ${authHeader3.length})`
         );
 
-        // Debug the complete authorization header format (without revealing the key)
-        const authHeader = `Bearer ${apiKey}`;
         console.log(
-          `Auth header starts with: Bearer ${apiKey.substring(0, 5)}...`
+          `📝 Request Headers: Authorization, Content-Type, HTTP-Referer, X-Title`
         );
-        console.log(`Auth header length: ${authHeader.length}`);
 
-        // Follow the documentation exactly
+        console.log("🔍 MAKING API REQUEST NOW...");
+
+        // Follow the documentation exactly but try different header format
         const response = await fetch(
           "https://openrouter.ai/api/v1/chat/completions",
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${apiKey.trim()}`, // Trim whitespace which could cause auth issues
+              // Try without the 'Bearer ' prefix as a test - OpenRouter might expect just the token
+              Authorization: authHeader3,
               "Content-Type": "application/json",
               "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
               "X-Title": "Urban Air Quality Management Platform",
@@ -158,6 +215,8 @@ app.post("/recommendations", async (c) => {
             body: JSON.stringify(requestBody),
           }
         );
+
+        console.log("🔍 API REQUEST COMPLETED");
 
         console.log(`OpenRouter API response status: ${response.status}`);
         console.log(
