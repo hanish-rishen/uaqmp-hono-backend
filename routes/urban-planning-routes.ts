@@ -174,40 +174,19 @@ app.post("/recommendations", async (c) => {
           "📡 Making request to OpenRouter API with model: deepseek/deepseek-chat-v3-0324"
         );
 
-        // Create auth header with different formats to test
+        // Clean any potential whitespace from the API key
         const cleanApiKey = apiKey.trim();
-        const authHeader1 = `Bearer ${cleanApiKey}`;
-        const authHeader2 = `Bearer ${cleanApiKey.replace(/\s+/g, "")}`;
-
-        console.log(`📝 Auth header option 1 length: ${authHeader1.length}`);
-        console.log(
-          `📝 Auth header option 1 starts with: Bearer ${cleanApiKey.substring(
-            0,
-            5
-          )}...`
-        );
-        console.log(`📝 Auth header option 2 length: ${authHeader2.length}`);
-
-        // Try without 'Bearer ' prefix as a test
-        const authHeader3 = cleanApiKey;
-        console.log(
-          `📝 Testing auth header without Bearer prefix (length: ${authHeader3.length})`
-        );
-
-        console.log(
-          `📝 Request Headers: Authorization, Content-Type, HTTP-Referer, X-Title`
-        );
+        const authHeader = `Bearer ${cleanApiKey}`;
 
         console.log("🔍 MAKING API REQUEST NOW...");
 
-        // Follow the documentation exactly but try different header format
+        // Use the proper Bearer authentication format
         const response = await fetch(
           "https://openrouter.ai/api/v1/chat/completions",
           {
             method: "POST",
             headers: {
-              // Try without the 'Bearer ' prefix as a test - OpenRouter might expect just the token
-              Authorization: authHeader3,
+              Authorization: authHeader,
               "Content-Type": "application/json",
               "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
               "X-Title": "Urban Air Quality Management Platform",
