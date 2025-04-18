@@ -7,7 +7,7 @@ dotenv.config();
 
 // Define the environment variables type for Cloudflare Workers
 interface Env {
-  OPENROUTER_KEY?: string; // Changed from OPENROUTER_API_KEY to OPENROUTER_KEY
+  OPENROUTER_API_KEY?: string; // Changed back to OPENROUTER_API_KEY
   [key: string]: unknown;
 }
 
@@ -84,179 +84,102 @@ app.post("/recommendations", async (c) => {
     }
 
     // Get API key from Cloudflare environment
-    const apiKey = c.env.OPENROUTER_KEY; // Changed from OPENROUTER_API_KEY to OPENROUTER_KEY
+    // First try to get the API key from the context
+    let apiKey = c.env.OPENROUTER_API_KEY;
 
-    // Debug the API key (but don't show the full key in logs)
-    console.log(`API key exists: ${!!apiKey}`);
+    // Debug the API key availability (without revealing the full key)
+    console.log(`API key from env exists: ${!!apiKey}`);
+
+    // If we have the key from the environment, use it
     if (apiKey) {
-      console.log(`API key length: ${apiKey.length}`);
-      console.log(`API key first 5 chars: ${apiKey.substring(0, 5)}...`);
-    }
-
-    if (!apiKey) {
-      console.error("ERROR: OpenRouter API key not found");
-      return c.json(
-        {
-          error: "Configuration error: OpenRouter API key is not available",
-          details: "Please check your environment variables",
-        },
-        500
-      );
-    }
-
-    // Following OpenRouter documentation exactly
-    console.log("Sending request to OpenRouter API following documentation...");
-    try {
-      // Create request body according to documentation
-      const requestBody = {
-        model: "deepseek/deepseek-chat-v3-0324", // Using deepseek model
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      };
-
-      // Based on insights from the article about OpenRouter auth issues
       console.log(
-        "Sending fetch request to OpenRouter API with Bearer token authentication"
+        `Using API key from worker environment: ${apiKey.substring(0, 5)}...`
       );
-
-      // Make sure we're formatting the Authorization header exactly as expected
-      // The article mentions that OpenRouter expects OPENROUTER_API_KEY specifically
-      // and is sensitive to authorization format
-      // Using fetch with headers exactly as in documentation
-      console.log("Sending fetch request to OpenRouter API...");
-
-      // Follow the documentation exactly - DO NOT use URL parameters
-      const response = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`, // This is the correct format
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
-            "X-Title": "Urban Air Quality Management Platform",
-          },
-          body: JSON.stringify(requestBody),
-        }
+    }
+    // For local development, try to get from process.env as fallback
+    else if (
+      typeof process !== "undefined" &&
+      process.env &&
+      process.env.OPENROUTER_API_KEY
+    ) {
+      apiKey = process.env.OPENROUTER_API_KEY;
+      console.log(
+        `Using API key from process.env: ${apiKey.substring(0, 5)}...`
       );
+    } else {
+      // Remove the global variable check that's causing TypeScript errors
+      console.warn("No OpenRouter API key found in any environment");
+      console.log(
+        "Proceeding with fallback mode - will return mock recommendations"
+      );
+    }
 
-      console.log("OpenRouter response status:", response.status);
-
-      if (response.ok) {
-        // Successfully got response
-        const data = await response.json();
-        console.log("Successfully received response from OpenRouter");
-
-        return c.json({
-          recommendation:
-            data.choices[0]?.message?.content ||
-            "No recommendation could be generated.",
-        });
-      } else {
-        // API returned error
-        const errorText = await response.text();
-        console.error("OpenRouter API error:", errorText);
-
-        // For debugging only - DO NOT include in production
-        console.log(
-          "Debug info - API key first 5 chars:",
-          apiKey?.substring(0, 5)
-        );
-        console.log("Failed request body:", JSON.stringify(requestBody));
-
-        // Try fallback to our mock response
-        console.log("Falling back to mock response");
-        return c.json({
-          recommendation: `# Urban Planning Recommendations
-
-## Land Use & Zoning
-Based on the provided data:
-- Implement mixed-use development with medium-density residential areas
-- Create buffer zones around water bodies to protect natural resources
-- Designate commercial zones along main transit corridors
-
-## Green Infrastructure
-- Develop a network of small pocket parks throughout the dense urban area
-- Mandate green roofs on new commercial buildings
-- Plant pollution-absorbing trees along major roadways
-
-## Transportation
-- Expand public transportation network with electric buses
-- Develop dedicated cycling infrastructure
-- Implement car-free zones in residential areas
-
-## Building Design
-- Require HEPA filtration systems in new buildings
-- Implement energy-efficient building codes
-- Use light-colored roofing materials to reduce heat absorption`,
-          source: "mock", // Indicate this is from our fallback system
-        });
-      }
-    } catch (apiError) {
-      console.error("Error making request to OpenRouter:", apiError);
-
-      // Try alternative approach with axios as last resort
+    // If we have an API key, try to use the OpenRouter API
+    if (apiKey) {
       try {
-        console.log("Trying axios as final attempt...");
-        const axiosResponse = await axios.post(
+        // Create request body according to documentation
+        const requestBody = {
+          model: "deepseek/deepseek-chat-v3-0324",
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        };
+
+        console.log("Attempting to call OpenRouter API with valid key");
+
+        // Follow the documentation exactly
+        const response = await fetch(
           "https://openrouter.ai/api/v1/chat/completions",
           {
-            model: "deepseek/deepseek-chat-v3-0324",
-            messages: [
-              {
-                role: "user",
-                content: prompt,
-              },
-            ],
-          },
-          {
+            method: "POST",
             headers: {
-              Authorization: `Bearer ${apiKey}`,
+              Authorization: `Bearer ${apiKey}`, // TypeScript now knows apiKey is defined here
               "Content-Type": "application/json",
+              "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
+              "X-Title": "Urban Air Quality Management Platform",
             },
+            body: JSON.stringify(requestBody),
           }
         );
 
-        console.log("Axios approach successful!");
-        return c.json({
-          recommendation:
-            axiosResponse.data.choices[0]?.message?.content ||
-            "No recommendation could be generated.",
-        });
-      } catch (finalError) {
-        console.error("Final attempt with axios also failed:", finalError);
+        console.log("OpenRouter response status:", response.status);
 
-        // Return a mock response with fallback source indicated
-        return c.json({
-          recommendation: `# Urban Planning Recommendations (Fallback Response)
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Successfully received response from OpenRouter");
 
-## Land Use & Zoning
-- Implement mixed-use development with residential, commercial and green areas
-- Create buffer zones around water bodies and sensitive ecological areas
-- Plan for moderate density housing with adequate community facilities
+          return c.json({
+            recommendation:
+              data.choices[0]?.message?.content ||
+              "No recommendation could be generated.",
+            source: "openrouter", // Indicate this is from the actual API
+          });
+        }
 
-## Green Infrastructure
-- Develop interconnected green spaces and urban forests
-- Install green roofs and vertical gardens on buildings
-- Create bioswales and rain gardens for stormwater management
+        // If we get here, the OpenRouter API returned an error
+        const errorText = await response.text();
+        console.error("OpenRouter API error:", errorText);
 
-## Transportation
-- Design pedestrian-friendly streets and neighborhoods
-- Implement cycling infrastructure network
-- Optimize public transit routes and frequencies
-
-## Building Design
-- Use sustainable and local building materials
-- Implement energy-efficient designs with natural lighting
-- Plan for adequate ventilation systems in all buildings`,
-          source: "fallback", // Indicate this is our fallback response
-        });
+        // Continue to fallback
+      } catch (apiError) {
+        console.error("Error making request to OpenRouter:", apiError);
+        // Continue to fallback
       }
     }
+
+    // Generate a dynamic fallback response based on the prompt
+    // This extracts key information from the prompt to customize the response
+    const extractedInfo = extractInfoFromPrompt(prompt);
+
+    console.log("Using fallback response with extracted data:", extractedInfo);
+
+    return c.json({
+      recommendation: generateDynamicRecommendations(extractedInfo),
+      source: "fallback", // Clearly indicate this is a fallback response
+    });
   } catch (error) {
     console.error("Request processing error:", error);
     return c.json(
@@ -268,5 +191,124 @@ Based on the provided data:
     );
   }
 });
+
+// Helper function to extract key information from the prompt
+function extractInfoFromPrompt(prompt: string): any {
+  const info: any = {
+    elevation: 100,
+    terrain: "flat",
+    waterBodies: 2,
+    density: 5000,
+    aqi: 50,
+    aqiLevel: "Moderate",
+  };
+
+  // Extract elevation
+  const elevationMatch = prompt.match(/Elevation\s+(\d+)m/i);
+  if (elevationMatch && elevationMatch[1]) {
+    info.elevation = parseInt(elevationMatch[1]);
+  }
+
+  // Extract terrain type
+  const terrainMatch = prompt.match(/terrain\s+(\w+)/i);
+  if (terrainMatch && terrainMatch[1]) {
+    info.terrain = terrainMatch[1].toLowerCase();
+  }
+
+  // Extract water bodies
+  const waterMatch = prompt.match(/(\d+)\s+water\s+bodies/i);
+  if (waterMatch && waterMatch[1]) {
+    info.waterBodies = parseInt(waterMatch[1]);
+  }
+
+  // Extract population density
+  const densityMatch =
+    prompt.match(/Density:\s+(\d+)/i) ||
+    prompt.match(/(\d+)\s+people\s+per\s+square\s+km/i);
+  if (densityMatch && densityMatch[1]) {
+    info.density = parseInt(densityMatch[1]);
+  }
+
+  // Extract AQI
+  const aqiMatch = prompt.match(/AQI\s+of\s+(\d+)/i);
+  if (aqiMatch && aqiMatch[1]) {
+    info.aqi = parseInt(aqiMatch[1]);
+  }
+
+  // Extract AQI level
+  const aqiLevelMatch = prompt.match(/AQI\s+of\s+\d+\s+\(([^)]+)\)/i);
+  if (aqiLevelMatch && aqiLevelMatch[1]) {
+    info.aqiLevel = aqiLevelMatch[1];
+  }
+
+  return info;
+}
+
+// Generate recommendations based on the extracted information
+function generateDynamicRecommendations(info: any): string {
+  return `# Urban Planning Recommendations
+
+## Land Use & Zoning
+Based on the ${info.terrain} terrain with elevation of ${
+    info.elevation
+  }m, and population density of ${info.density} people per square km:
+- Implement mixed-use development with ${
+    info.density > 10000 ? "high" : "medium"
+  }-density residential areas
+- Create ${
+    info.waterBodies > 0
+      ? `buffer zones around the ${info.waterBodies} water bodies`
+      : "green corridors"
+  } to protect natural resources
+- Designate commercial zones along main transit corridors ${
+    info.aqi > 100 ? "with strict emission controls" : ""
+  }
+
+## Green Infrastructure
+- Develop a network of ${
+    info.density > 10000 ? "small pocket parks" : "large parks"
+  } throughout the ${info.density > 10000 ? "dense urban" : "residential"} area
+- Mandate green roofs on new commercial buildings to reduce urban heat island effect
+- Plant pollution-absorbing trees along major roadways ${
+    info.aqi > 100
+      ? "to improve air quality (AQI currently at " + info.aqi + ")"
+      : ""
+  }
+${
+  info.waterBodies > 0
+    ? "- Implement rainwater harvesting systems near water bodies to maintain water quality"
+    : ""
+}
+
+## Transportation
+- Expand public transportation network with ${
+    info.aqi > 100 ? "electric" : "low-emission"
+  } buses
+- Develop dedicated cycling infrastructure ${
+    info.density > 10000 ? "with protected lanes" : "and pedestrian walkways"
+  }
+- Implement ${
+    info.aqi > 100
+      ? "car-free zones in residential areas"
+      : "traffic calming measures in neighborhood streets"
+  }
+${
+  info.terrain === "hilly"
+    ? "- Design multi-level transportation systems to accommodate the hilly terrain"
+    : ""
+}
+
+## Building Design
+- Require ${
+    info.aqi > 100 ? "HEPA filtration systems" : "enhanced ventilation"
+  } in new buildings
+- Implement energy-efficient building codes with solar panel requirements
+- Use light-colored roofing materials to reduce heat absorption
+${
+  info.waterBodies > 0
+    ? "- Design buildings to minimize runoff into nearby water bodies"
+    : ""
+}`;
+}
 
 export const urbanPlanningRoutes = app;
