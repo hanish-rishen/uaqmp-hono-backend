@@ -161,7 +161,7 @@ app.post("/recommendations", async (c) => {
       try {
         // Create request body according to documentation
         const requestBody = {
-          model: "deepseek/deepseek-chat-v3-0324",
+          model: "deepseek/deepseek-chat-v3-0324:free",
           messages: [
             {
               role: "user",
