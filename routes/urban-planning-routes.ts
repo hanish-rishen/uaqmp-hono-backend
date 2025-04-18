@@ -98,6 +98,15 @@ app.post("/recommendations", async (c) => {
       console.log(`API key length: ${apiKey.length}`);
       console.log(`API key first 5 chars: ${apiKey.substring(0, 5)}...`);
       console.log(`Using API key from Cloudflare environment variables`);
+
+      // Debug the actual API key format more extensively - without revealing the full key
+      console.log(
+        `API key format check: ${
+          apiKey.startsWith("sk-or-") ? "Valid prefix" : "Invalid prefix"
+        }`
+      );
+      console.log(`API key contains spaces: ${apiKey.includes(" ")}`);
+      console.log(`API key contains newlines: ${apiKey.includes("\n")}`);
     } else {
       console.error(
         "⚠️ CRITICAL: OPENROUTER_API_KEY is not set in environment"
@@ -128,13 +137,20 @@ app.post("/recommendations", async (c) => {
           `📝 Request Headers: Authorization (Bearer token), Content-Type, HTTP-Referer, X-Title`
         );
 
+        // Debug the complete authorization header format (without revealing the key)
+        const authHeader = `Bearer ${apiKey}`;
+        console.log(
+          `Auth header starts with: Bearer ${apiKey.substring(0, 5)}...`
+        );
+        console.log(`Auth header length: ${authHeader.length}`);
+
         // Follow the documentation exactly
         const response = await fetch(
           "https://openrouter.ai/api/v1/chat/completions",
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${apiKey}`,
+              Authorization: `Bearer ${apiKey.trim()}`, // Trim whitespace which could cause auth issues
               "Content-Type": "application/json",
               "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
               "X-Title": "Urban Air Quality Management Platform",
