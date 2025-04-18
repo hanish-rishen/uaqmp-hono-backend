@@ -83,34 +83,27 @@ app.post("/recommendations", async (c) => {
       return c.json({ error: "Prompt is required" }, 400);
     }
 
-    // Get API key from Cloudflare environment
-    // First try to get the API key from the context
-    let apiKey = c.env.OPENROUTER_API_KEY;
+    // Log request details for debugging
+    console.log(
+      `Received urban planning recommendation request with prompt length: ${prompt.length} characters`
+    );
+    console.log(`Request environment info: ${Object.keys(c.env).join(", ")}`);
 
-    // Debug the API key availability (without revealing the full key)
-    console.log(`API key from env exists: ${!!apiKey}`);
+    // Get API key from Cloudflare environment directly - no fallbacks
+    const apiKey = c.env.OPENROUTER_API_KEY;
 
-    // If we have the key from the environment, use it
+    // Enhanced debugging for API key
+    console.log(`API key exists in environment: ${!!apiKey}`);
     if (apiKey) {
-      console.log(
-        `Using API key from worker environment: ${apiKey.substring(0, 5)}...`
-      );
-    }
-    // For local development, try to get from process.env as fallback
-    else if (
-      typeof process !== "undefined" &&
-      process.env &&
-      process.env.OPENROUTER_API_KEY
-    ) {
-      apiKey = process.env.OPENROUTER_API_KEY;
-      console.log(
-        `Using API key from process.env: ${apiKey.substring(0, 5)}...`
-      );
+      console.log(`API key length: ${apiKey.length}`);
+      console.log(`API key first 5 chars: ${apiKey.substring(0, 5)}...`);
+      console.log(`Using API key from Cloudflare environment variables`);
     } else {
-      // Remove the global variable check that's causing TypeScript errors
-      console.warn("No OpenRouter API key found in any environment");
+      console.error(
+        "⚠️ CRITICAL: OPENROUTER_API_KEY is not set in environment"
+      );
       console.log(
-        "Proceeding with fallback mode - will return mock recommendations"
+        "⚠️ Make sure to set OPENROUTER_API_KEY in Cloudflare Worker environment variables"
       );
     }
 
@@ -128,7 +121,12 @@ app.post("/recommendations", async (c) => {
           ],
         };
 
-        console.log("Attempting to call OpenRouter API with valid key");
+        console.log(
+          "📡 Making request to OpenRouter API with model: deepseek/deepseek-chat-v3-0324"
+        );
+        console.log(
+          `📝 Request Headers: Authorization (Bearer token), Content-Type, HTTP-Referer, X-Title`
+        );
 
         // Follow the documentation exactly
         const response = await fetch(
@@ -136,7 +134,7 @@ app.post("/recommendations", async (c) => {
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${apiKey}`, // TypeScript now knows apiKey is defined here
+              Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
               "HTTP-Referer": "https://uaqmp-api.hanishrishen.workers.dev",
               "X-Title": "Urban Air Quality Management Platform",
@@ -145,47 +143,90 @@ app.post("/recommendations", async (c) => {
           }
         );
 
-        console.log("OpenRouter response status:", response.status);
+        console.log(`OpenRouter API response status: ${response.status}`);
+        console.log(
+          `OpenRouter API response status text: ${response.statusText}`
+        );
 
         if (response.ok) {
           const data = await response.json();
-          console.log("Successfully received response from OpenRouter");
+          console.log("✅ Successfully received response from OpenRouter");
+          console.log(
+            `📄 Response choices length: ${data.choices?.length || 0}`
+          );
+
+          if (data.choices && data.choices.length > 0) {
+            const contentLength =
+              data.choices[0]?.message?.content?.length || 0;
+            console.log(
+              `📄 Response content length: ${contentLength} characters`
+            );
+          }
 
           return c.json({
             recommendation:
               data.choices[0]?.message?.content ||
               "No recommendation could be generated.",
-            source: "openrouter", // Indicate this is from the actual API
+            source: "openrouter",
           });
         }
 
         // If we get here, the OpenRouter API returned an error
         const errorText = await response.text();
-        console.error("OpenRouter API error:", errorText);
+        console.error(
+          `❌ OpenRouter API error (${response.status}): ${errorText}`
+        );
+        console.error(
+          "❌ This indicates an issue with the OpenRouter API request or authentication"
+        );
 
-        // Continue to fallback
+        // Return an error response instead of using fallback
+        return c.json(
+          {
+            error: `OpenRouter API error: ${response.status}`,
+            message:
+              errorText.substring(0, 200) +
+              (errorText.length > 200 ? "..." : ""),
+            recommendation:
+              "Unable to generate AI recommendations at this time. Please try again later.",
+          },
+          500
+        );
       } catch (apiError) {
-        console.error("Error making request to OpenRouter:", apiError);
-        // Continue to fallback
+        console.error("❌ Error making request to OpenRouter:", apiError);
+        return c.json(
+          {
+            error: "API Request Failed",
+            message:
+              apiError instanceof Error
+                ? apiError.message
+                : "Unknown error connecting to AI service",
+            recommendation:
+              "Unable to connect to the AI recommendation service. Please try again later.",
+          },
+          500
+        );
       }
+    } else {
+      // Return a clear error when API key is missing
+      console.error("❌ Cannot proceed without OPENROUTER_API_KEY");
+      return c.json(
+        {
+          error: "Configuration Error",
+          message: "OpenRouter API key is not configured",
+          recommendation:
+            "Unable to generate recommendations due to server configuration issues.",
+        },
+        500
+      );
     }
-
-    // Generate a dynamic fallback response based on the prompt
-    // This extracts key information from the prompt to customize the response
-    const extractedInfo = extractInfoFromPrompt(prompt);
-
-    console.log("Using fallback response with extracted data:", extractedInfo);
-
-    return c.json({
-      recommendation: generateDynamicRecommendations(extractedInfo),
-      source: "fallback", // Clearly indicate this is a fallback response
-    });
   } catch (error) {
-    console.error("Request processing error:", error);
+    console.error("⚠️ Request processing error:", error);
     return c.json(
       {
         error: "Request failed",
         message: error instanceof Error ? error.message : "Unknown error",
+        recommendation: "An unexpected error occurred. Please try again.",
       },
       500
     );
